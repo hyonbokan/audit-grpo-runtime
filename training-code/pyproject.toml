@@ -1,0 +1,17 @@
+[tool.ruff]
+line-length = 100
+# The GPU environments run Python 3.12; the judge environment runs 3.14.
+target-version = "py312"
+# Flat modules in both directories import each other by bare name.
+src = [".", "inference"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "UP", "SIM", "C4", "PIE", "RUF", "N", "PTH"]
+# Exception names describe the outcome (BudgetExhausted, GroupWithheld); no Error suffix.
+ignore = ["N818"]
+
+[tool.ruff.lint.per-file-ignores]
+# Fake docker scripts are embedded verbatim as shell text.
+"inference/test_*launcher.py" = ["E501"]
+# Runs on the host python3, which may predate datetime.UTC (3.11).
+"cycle_recovery.py" = ["UP017"]

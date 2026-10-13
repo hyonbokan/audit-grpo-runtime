@@ -1,0 +1,42 @@
+# Secrets: only the example is versioned.
+.env
+.env.*
+!.env.example
+*.env
+*.pem
+*.key
+credentials.json
+token
+
+# Private notes: operational state, experiment records, private repository names.
+private/
+
+# Run evidence, model output and data; it stays on the rental and in private backups.
+results/
+workspace/
+test-tools/
+archive/provenance/
+
+# Model weights, optimizer state and archives, wherever they appear.
+*.safetensors
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.gguf
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+*.jsonl
+*.log
+judge-cache/
+
+# Tool caches
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+.venv/
+.DS_Store

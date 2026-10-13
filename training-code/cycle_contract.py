@@ -1,0 +1,361 @@
+"""Validated corrected-cycle configuration, complete decision and phase receipts."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import math
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+import schedules
+
+CONDITIONS = (
+    "complete_group",
+    "known_grades",
+    "sampling_support",
+    "source_worker_transfer",
+    "finite_loss",
+    "nonzero_gradient",
+    "correction_health",
+    "changed_weights",
+    "optimizer_progress",
+    "checkpoint_saved",
+    "fresh_worker_transfer",
+    "fresh_weight_version",
+    "precision_declared",
+    "repeat_drift_retained",
+)
+
+
+def evaluate_cycle(evidence: dict[str, bool]) -> dict[str, Any]:
+    if set(evidence) != set(CONDITIONS) or any(
+        type(value) is not bool for value in evidence.values()
+    ):
+        raise ValueError("Every corrected-cycle condition requires explicit boolean evidence")
+    failures = [name for name in CONDITIONS if not evidence[name]]
+    return {"approved": not failures, "failed_conditions": failures, "scope": "one_corrected_cycle"}
+
+
+def validate_config(config: dict[str, Any]) -> None:
+    required = json.loads(Path(__file__).with_name("cycle_scope.json").read_text())
+    if schedules.is_registered(config.get("schedule_id")):
+        reviewed = schedules.scope(config)
+        limits = reviewed["training"]
+        prompt_count = config.get("prompt_token_count")
+        if type(prompt_count) is not int or not 0 < prompt_count < reviewed["maximum_context"]:
+            raise ValueError("Verified weekend prompt token count required")
+        required["absolute_deadline"] = reviewed["training_cutoff"]
+        required["engine"]["max_model_len"] = reviewed["maximum_context"]
+        required["engine"]["gpu_memory_utilization"] = limits["gpu_memory_utilization"]
+        required["sampling"]["max_tokens"] = reviewed["maximum_context"] - prompt_count
+        for name in ("offload_layers", "prefetch_depth"):
+            required[name] = limits.get(name, required[name])
+        limits = dict(limits, sampling=required["sampling"])
+        required["weekend"] = limits
+    continuation = config.get("schedule_id") is not None
+    if continuation:
+        limits = next(
+            (
+                required[key]
+                for key in ("continuation", "full_training", "audited_xhigh", "weekend")
+                if required.get(key, {}).get("schedule_id") == config["schedule_id"]
+            ),
+            None,
+        )
+        if limits is None:
+            raise ValueError(f"Unreviewed schedule {config['schedule_id']!r}")
+        if limits.get("policy_reasoning_effort"):
+            if config.get("policy_reasoning_effort") != limits["policy_reasoning_effort"]:
+                raise ValueError("Policy reasoning effort differs from reviewed scope")
+            required["sampling"] = limits["sampling"]
+        initial, target = config.get("initial_step"), config.get("target_step")
+        if (
+            config["schedule_id"] != limits["schedule_id"]
+            or type(initial) is not int
+            or type(target) is not int
+            or not limits["initial_step"] <= initial < target <= limits["maximum_step"]
+            or target != initial + 1
+            or not config.get("row_id")
+            or not config.get("dataset_workspace")
+        ):
+            raise ValueError("Continuation row or schedule differs from reviewed scope")
+        engine = config.get("engine", {})
+        context = engine.get("max_model_len")
+        if (
+            type(context) is not int
+            or not required["engine"]["max_model_len"] <= context <= limits["maximum_context"]
+            or {**engine, "max_model_len": required["engine"]["max_model_len"]}
+            != required["engine"]
+        ):
+            raise ValueError(
+                "Continuation engine differs from reviewed scope: "
+                + differing({**engine, "max_model_len": context}, required["engine"])
+            )
+        required.update(
+            initial_step=initial,
+            target_step=target,
+            engine=engine,
+            seconds_limit=limits["seconds_limit"],
+            judge_seconds_limit=limits["judge_seconds_limit"],
+        )
+    # Run paths may vary; model, objective and schedule stay within reviewed scope.
+    protected = (
+        "model_id",
+        "model_revision",
+        "base_precision",
+        "native_adapter_precision",
+        "rollout_adapter_precision",
+        "sampler_backend",
+        "optimizer_kind",
+        "initial_step",
+        "target_step",
+        "learning_rate",
+        "epsilon",
+        "correction_max",
+        "max_grad_norm",
+        "offload_layers",
+        "prefetch_depth",
+        "seed",
+        "sampling",
+        "engine",
+        "retry_limit",
+        "rate_usd_per_hour",
+        "absolute_deadline",
+    )
+    changed = [name for name in protected if config.get(name) != required[name]]
+    if changed:
+        raise ValueError(
+            "Model, objective, precision or schedule differs from reviewed scope: "
+            + ", ".join(
+                differing(config.get(name), required[name], name)
+                if isinstance(required[name], dict)
+                else f"{name}={config.get(name)!r} (reviewed {required[name]!r})"
+                for name in changed
+            )
+        )
+    for name in ("seconds_limit", "judge_seconds_limit"):
+        upper = required[name]
+        if type(config.get(name)) is not int or not 0 < config[name] <= upper:
+            raise ValueError("Invalid reviewed time budget")
+    for name, lower, upper in (
+        (
+            "judge_operation_cap_usd",
+            0,
+            limits["judge_operation_cap_usd"] if continuation else 10,
+        ),
+        ("max_clip_fraction", 0, 0.05),
+        ("min_ess_fraction", 0.5, 1),
+    ):
+        value = config.get(name)
+        if (
+            type(value) not in (int, float)
+            or not math.isfinite(value)
+            or not lower <= value <= upper
+        ):
+            raise ValueError("Invalid reviewed correction/spending bound")
+    if (
+        config["judge_operation_cap_usd"] == 0
+        or type(config.get("projection_chunk")) is not int
+        or config["projection_chunk"] < 1
+    ):
+        raise ValueError("Positive operation budget and projection chunk required")
+
+
+def differing(actual: Any, reviewed: dict[str, Any], prefix: str = "") -> str:
+    """Name each field that differs, so a rejected config says what to change."""
+    actual = actual if isinstance(actual, dict) else {}
+    label = f"{prefix}." if prefix else ""
+    return ", ".join(
+        f"{label}{key}={actual.get(key)!r} (reviewed {reviewed.get(key)!r})"
+        for key in sorted(set(actual) | set(reviewed))
+        if actual.get(key) != reviewed.get(key)
+    )
+
+
+def prepare_cycle(config: dict[str, Any], out: Path) -> None:
+    validate_config(config)
+    if (out / "prepared.json").exists() or any(
+        (out / name).exists() for name in ("rollout", "update", "refresh", "grading")
+    ):
+        raise FileExistsError("GPU-cycle output must be fresh")
+    deadline = datetime.fromisoformat(config["absolute_deadline"])
+    if (deadline - datetime.now(UTC)).total_seconds() < config["seconds_limit"]:
+        raise ValueError("Insufficient remaining machine budget")
+    checkpoint = Path(config["checkpoint"])
+    for name in (
+        "adapter_model.safetensors",
+        "adapter_config.json",
+        "optimizer.pt",
+        "scheduler.pt",
+        "rng_state.pth",
+        "trainer_state.json",
+    ):
+        if not (checkpoint / name).is_file():
+            raise FileNotFoundError(checkpoint / name)
+    digest = hashlib.sha256((checkpoint / "adapter_model.safetensors").read_bytes()).hexdigest()
+    if digest != config["initial_adapter_sha256"]:
+        raise ValueError("Accepted source checkpoint identity differs")
+    if (
+        json.loads((checkpoint / "trainer_state.json").read_text())["global_step"]
+        != config["initial_step"]
+    ):
+        raise ValueError("Accepted source checkpoint step differs")
+    for name in ("source_plan", "request", "prior_analysis"):
+        if not Path(config[name]).is_file():
+            raise FileNotFoundError(config[name])
+    if not Path(config["model_path"]).is_dir():
+        raise FileNotFoundError(config["model_path"])
+    (out / "prepared.json").write_text(json.dumps(config, indent=2) + "\n")
+    plan = json.loads(Path(config["source_plan"]).read_text())
+    plan["judge_operation"] = {"id": config["run_id"], "cap_usd": config["judge_operation_cap_usd"]}
+    if config.get("judge_env_file"):
+        plan["judge_env_file"] = config["judge_env_file"]
+    if config.get("schedule_id"):
+        plan["judge_retry_limit"] = config["retry_limit"]
+        plan["dataset_workspace"] = config["dataset_workspace"]
+        plan["selected_row_id"] = config["row_id"]
+    if "judge_call_retries" in config:
+        plan["judge_call_retries"] = config["judge_call_retries"]
+    (out / "judge-plan.json").write_text(json.dumps(plan, indent=2) + "\n")
+    write_event(
+        out, "cycle_start", initial_step=config["initial_step"], target_step=config["target_step"]
+    )
+
+
+def validate_policy_profile(config: dict, request: dict, plan: dict) -> None:
+    effort = config.get("policy_reasoning_effort")
+    if effort is None:
+        return
+    options = request.get("template_options", {})
+    if (
+        options.get("enable_thinking") is not True
+        or options.get("reasoning_effort") != effort
+        or plan.get("sampling_profile", {}).get("policy_reasoning_effort") != effort
+    ):
+        raise ValueError(
+            "Actual request/plan reasoning profile differs from training configuration"
+        )
+    if request["full_completion_ceiling"] != config["sampling"]["max_tokens"]:
+        raise ValueError("Request completion ceiling differs from training configuration")
+
+
+def finish_cycle(config: dict[str, Any], out: Path) -> dict[str, Any]:
+    source = json.loads((out / "rollout/receipt.json").read_text())
+    update = json.loads((out / "update/receipt.json").read_text())
+    fresh = json.loads((out / "refresh/receipt.json").read_text())
+    samples = json.loads((out / "rollout/samples.json").read_text())
+    grades = json.loads((out / "grading/rewards.json").read_text())
+    prior = json.loads(Path(config["prior_analysis"]).read_text())
+    request = json.loads(Path(config["request"]).read_text()) if config.get("row_id") else None
+    checkpoint = out / f"update/checkpoint-{config['target_step']}"
+    evidence = {
+        "complete_group": len(samples) == 4
+        and (
+            request is None
+            or all(
+                sample.get("row_id") == config["row_id"] == request["row_id"]
+                and sample.get("prompt_ids") == request["prompt_ids"]
+                for sample in samples
+            )
+        ),
+        "known_grades": len(grades) == 4
+        and all(type(value) in (int, float) and math.isfinite(value) for value in grades),
+        "sampling_support": all(
+            sample.get("sampling_support_ids") is not None for sample in samples
+        ),
+        "source_worker_transfer": source["transfer"]["cast_transfer_verified"],
+        "finite_loss": math.isfinite(update["loss"]),
+        "nonzero_gradient": math.isfinite(update["gradient_norm"]) and update["gradient_norm"] > 0,
+        "correction_health": update["correction_clip_fraction"] <= config["max_clip_fraction"]
+        and update["correction_ess_fraction"] >= config["min_ess_fraction"],
+        "changed_weights": update["adapter_weights_changed"],
+        "optimizer_progress": update["optimizer_steps"] == [config["target_step"]],
+        "checkpoint_saved": all(
+            (checkpoint / name).is_file()
+            for name in (
+                "adapter_model.safetensors",
+                "optimizer.pt",
+                "rng_state.pth",
+                "scheduler.pt",
+                "trainer_state.json",
+            )
+        ),
+        "fresh_worker_transfer": fresh["transfer"]["cast_transfer_verified"],
+        "fresh_weight_version": fresh["weight_version"] == update["weight_version"]
+        and fresh["weight_version"] != source["weight_version"]
+        and update["source_weight_version"] == source["weight_version"]
+        and all(sample["weight_version"] == source["weight_version"] for sample in samples),
+        "precision_declared": fresh["native_adapter_precision"]
+        == source["native_adapter_precision"]
+        == "float32"
+        and fresh["rollout_adapter_precision"] == source["rollout_adapter_precision"] == "bfloat16",
+        "repeat_drift_retained": "repeat" in prior
+        and all(
+            math.isfinite(prior["repeat"].get(name, float("nan")))
+            for name in ("raw_max_abs_logprob_difference", "processed_max_abs_logprob_difference")
+        ),
+    }
+    result = {
+        "decision": evaluate_cycle(evidence),
+        "evidence": evidence,
+        "historical_exact_parity_approved": False,
+        "prior_repeat": prior["repeat"],
+        "optimizer_updates": 1,
+        "initial_step": config["initial_step"],
+        "target_step": config["target_step"],
+        "quality_gain_established": False,
+    }
+    (out / "cycle-result.json").write_text(json.dumps(result, indent=2) + "\n")
+    write_event(out, "cycle_end", approved=result["decision"]["approved"])
+    return result
+
+
+def write_event(out: Path, event: str, **details: Any) -> None:
+    value = {
+        "phase": out.name,
+        "event": event,
+        "utc": datetime.now(UTC).isoformat(),
+        **details,
+    }
+    with (out / "events.jsonl").open("a") as stream:
+        stream.write(json.dumps(value) + "\n")
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("phase", choices=("settings", "prepare", "finish"))
+    parser.add_argument("--config", type=Path, required=True)
+    parser.add_argument("--out", type=Path)
+    args = parser.parse_args(argv)
+    config = json.loads(args.config.read_text())
+    validate_config(config)
+    if args.phase == "settings":
+        print("\n".join(launcher_settings(config)))
+        return 0
+    if args.out is None:
+        parser.error(f"{args.phase} requires --out")
+    if args.phase == "prepare":
+        prepare_cycle(config, args.out)
+        return 0
+    return 0 if finish_cycle(config, args.out)["decision"]["approved"] else 1
+
+
+def launcher_settings(config: dict[str, Any]) -> list[str]:
+    """Lines read by launch-cycle.sh: images, time limits capped at the deadline, skip policy."""
+    until_deadline = int(
+        (datetime.fromisoformat(config["absolute_deadline"]) - datetime.now(UTC)).total_seconds()
+    )
+    return [
+        config["native_image"],
+        config["rollout_image"],
+        str(min(config["seconds_limit"], until_deadline)),
+        str(config["judge_seconds_limit"]),
+        str(config.get("skip_uninformative_groups", False)).lower(),
+    ]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

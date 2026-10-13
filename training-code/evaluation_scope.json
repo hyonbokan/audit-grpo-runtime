@@ -1,0 +1,48 @@
+{
+  "model_id": "Qwen/Qwen3.8-27B",
+  "model_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+  "base_precision": "bf16",
+  "native_adapter_precision": "float32",
+  "rollout_adapter_precision": "bfloat16",
+  "sampler_backend": "vllm_upstream",
+  "rollout_image": "audit-grpo-vllm:benchmark-v1",
+  "native_image": "audit-grpo-deps:pilot-v4-conv",
+  "sampling": {
+    "temperature": 1.0,
+    "top_k": 20,
+    "top_p": 0.95,
+    "max_tokens": 16384,
+    "logprobs": 1,
+    "n": 4,
+    "seed": 3407
+  },
+  "engine": {
+    "dtype": "bfloat16",
+    "lora_dtype": "bfloat16",
+    "max_model_len": 73728,
+    "gpu_memory_utilization": 0.85,
+    "max_num_seqs": 4,
+    "max_num_batched_tokens": 4096,
+    "enable_chunked_prefill": true,
+    "enable_prefix_caching": false,
+    "language_model_only": true,
+    "logprobs_mode": "processed_logprobs",
+    "enable_lora": true,
+    "max_loras": 1,
+    "max_lora_rank": 16,
+    "return_sampling_mask": false,
+    "seed": 3407
+  },
+  "seconds_limit": 2700,
+  "judge_seconds_limit": 600,
+  "judge_operation_cap_usd": 10,
+  "rate_usd_per_hour": 2.51,
+  "retry_limit": 0,
+  "absolute_deadline": "2026-10-09T11:23:06+00:00",
+  "thresholds": {
+    "max_validity_drop": 0,
+    "max_quality_drop": 0,
+    "max_volume_ratio": 1.0,
+    "min_recall_delta": 0
+  }
+}
