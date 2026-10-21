@@ -11,6 +11,7 @@ import pytest
 
 import controller
 import panels
+import retention
 import schedules
 from cycle_contract import validate_config
 from testing.cycles import schedule_cycle
@@ -252,11 +253,12 @@ def test_failed_visit_keeps_checkpoint_and_repeated_failures_stop_training(tmp_p
     assert controller.can_start_group(state, 50000, WEEKEND) is False
 
 
-def test_next_cycle_resumes_an_unrecorded_pending_visit(tmp_path):
+def test_next_cycle_resumes_an_unrecorded_pending_visit(tmp_path, monkeypatch):
+    roomy_disk(monkeypatch, 1000)
     pending = str(tmp_path / "run-visit-002")
     (tmp_path / "state.json").write_text(json.dumps({"visits": [{"root": "run-visit-001"}]}))
     (tmp_path / "pending-training.json").write_text(json.dumps({"root": pending, "row_id": "r"}))
-    assert controller.next_cycle({}, tmp_path) == pending
+    assert controller.next_cycle(run_config(tmp_path), tmp_path) == pending
 
 
 # --- Visits, identity and validation panels
@@ -297,6 +299,7 @@ def write_requests(out, row_id, prompt_tokens=18625, context=262144):
 
 def test_next_cycle_builds_the_next_single_step_from_the_accepted_checkpoint(tmp_path, monkeypatch):
     monkeypatch.setattr(controller, "seconds_until", lambda _deadline: 40 * 3600)
+    roomy_disk(monkeypatch, 1000)
     config = run_config(tmp_path)
     out = tmp_path / "runtime/results/run"
     out.mkdir()
@@ -477,3 +480,108 @@ def test_validation_panels_carry_the_runs_own_schedule(tmp_path, monkeypatch):
         assert panel["sampling"]["max_tokens"] == reviewed["maximum_context"] - 20000
         labels.extend(case["label"] for case in panel["cases"])
     assert labels == ["checkpoint-3", "checkpoint-4"]
+
+
+# --- Disk retention
+
+
+def roomy_disk(monkeypatch, free_gib):
+    monkeypatch.setattr(retention.shutil, "disk_usage", lambda _path: (0, 0, free_gib * 2**30))
+
+
+def test_next_cycle_refuses_to_start_a_visit_below_the_free_space_minimum(tmp_path, monkeypatch):
+    monkeypatch.setattr(controller, "seconds_until", lambda _deadline: 40 * 3600)
+    minimum = schedules.schedule(DAY)["storage"]["minimum_free_gib"]
+    roomy_disk(monkeypatch, minimum - 1)
+    config = run_config(tmp_path)
+    out = tmp_path / "runtime/results/run"
+    out.mkdir()
+    state = {"visits": [], "current_step": 5, "completion_gate": False}
+    (out / "state.json").write_text(json.dumps(state))
+    (out / "schedule.json").write_text(json.dumps(["first"]))
+    write_requests(out, "first")
+    with pytest.raises(OSError, match=rf"{minimum - 1}\.0 GiB free, {minimum} GiB required"):
+        controller.next_cycle(config, out)
+    assert not (out / "pending-training.json").exists()
+    assert not (tmp_path / "runtime/results/run-visit-001").exists()
+
+
+def test_prune_phase_appends_what_it_freed_to_the_runs_retention_record(tmp_path):
+    out = tmp_path / "run"
+    out.mkdir()
+    visits = []
+    for index, step in enumerate((4, 5, 6), start=1):
+        root = tmp_path / f"run-visit-{index:03d}"
+        checkpoint = root / f"update/checkpoint-{step}"
+        checkpoint.mkdir(parents=True)
+        (checkpoint / "optimizer.pt").write_bytes(b"o" * 7)
+        (checkpoint / "adapter_model.safetensors").write_bytes(b"a")
+        visits.append({"root": str(root), "decision": "update", "update": {"global_step": step}})
+    state = {"visits": visits, "current_checkpoint": str(checkpoint)}
+    (out / "state.json").write_text(json.dumps(state))
+    lines = controller.phase_prune({"schedule_id": DAY}, out, 1)
+    oldest = tmp_path / "run-visit-001/update/checkpoint-4"
+    assert json.loads(lines[0]) == {"files": 1, "bytes": 7}
+    record = json.loads((out / "retention.json").read_text())
+    assert [entry["removed"] for entry in record] == [
+        [{"path": str(oldest / "optimizer.pt"), "bytes": 7}]
+    ]
+    assert (oldest / "adapter_model.safetensors").is_file()
+    controller.phase_prune({"schedule_id": DAY}, out, 1)
+    assert len(json.loads((out / "retention.json").read_text())) == 2
+
+
+def write_validation(root, merged, checkpoint, row_id):
+    root.mkdir(parents=True)
+    case = {"label": "checkpoint-4", "checkpoint": checkpoint, "initial_step": 4}
+    config = {"cases": [case], "merged_model_path": str(merged)}
+    (root / "config.json").write_text(json.dumps(config))
+    metrics = {
+        "row_id": row_id,
+        "exact_coverage": 0.5,
+        "partial_coverage": 0.5,
+        "format_validity": 1.0,
+        "unknown_draws": 0,
+    }
+    (root / "comparison.json").write_text(json.dumps({"metrics": metrics}))
+
+
+def write_merge(merged, adapter_sha256):
+    merged.mkdir(parents=True)
+    manifest = {"status": "merged_and_verified", "adapter_sha256": adapter_sha256, "files": {}}
+    (merged / "MERGE_MANIFEST.json").write_text(json.dumps(manifest))
+    (merged / "model.safetensors").write_bytes(b"w" * 50)
+
+
+def test_recorded_validation_releases_its_merge_and_keeps_the_manifest(tmp_path):
+    out = tmp_path / "run"
+    out.mkdir()
+    merged = tmp_path / "cache/merges/run-step-4-444444444444"
+    write_merge(merged, "4" * 64)
+    folders = [tmp_path / f"run-validation-00-checkpoint-4-{i}" for i in range(2)]
+    for index, folder in enumerate(folders):
+        write_validation(folder, merged, "/results/cp4", f"held-out-{index}")
+    (out / "pending-validation.json").write_text(json.dumps([str(f) for f in folders]))
+    state = {"validation_history": [], "last_validation_epoch": 0}
+    (out / "state.json").write_text(json.dumps(state))
+    controller.phase_record_validation({"schedule_id": DAY}, out, 1)
+    assert not merged.exists()
+    receipt = json.loads((out / "merge-receipts" / f"{merged.name}.json").read_text())
+    assert (receipt["bytes"], receipt["manifest"]["adapter_sha256"]) == (50 + 132, "4" * 64)
+    recorded = json.loads((out / "state.json").read_text())["validation_history"]
+    assert recorded[0]["panel"]["row_ids"] == ["held-out-0", "held-out-1"]
+
+
+def test_release_final_merge_deletes_the_evaluated_checkpoints_merge(tmp_path, monkeypatch):
+    out = tmp_path / "run"
+    out.mkdir()
+    state = {"current_step": 6, "current_adapter_sha256": "6" * 64}
+    (out / "state.json").write_text(json.dumps(state))
+    config = {"schedule_id": DAY, "run_id": "run"}
+    merged = Path(panels.merged_path(config, state))
+    monkeypatch.setattr(controller, "merged_path", lambda *_: str(tmp_path / merged.name))
+    write_merge(tmp_path / merged.name, "6" * 64)
+    lines = controller.phase_release_final_merge(config, out, 1)
+    assert not (tmp_path / merged.name).exists()
+    assert json.loads(lines[0])["bytes"] == 50 + 132
+    assert (out / "merge-receipts" / f"{merged.name}.json").is_file()

@@ -10,8 +10,8 @@
   "source_plan": "/tmp/plan.json",
   "workspace": "/tmp/workspace",
   "row_id": "2022-12-escher/all-scope",
-  "rollout_image": "audit-grpo-vllm:benchmark-v1",
-  "native_image": "audit-grpo-deps:pilot-v4-conv",
+  "rollout_image": "audit-grpo-vllm:cu129-v1",
+  "native_image": "audit-grpo-deps:cu129-v1",
   "sampling": {
     "temperature": 1.0,
     "top_k": 20,

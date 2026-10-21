@@ -10,8 +10,8 @@
   "request": "/missing/request.json",
   "initial_adapter_sha256": "fa2ff9d279a3cbd4f3e827600497f1e4fb57fb2a8dfb28dee8f268f8748e4412",
   "model_path": "/missing/model",
-  "native_image": "audit-grpo-deps:pilot-v4-conv",
-  "rollout_image": "audit-grpo-vllm:benchmark-v1",
+  "native_image": "audit-grpo-deps:cu129-v1",
+  "rollout_image": "audit-grpo-vllm:cu129-v1",
   "initial_step": 1,
   "target_step": 2,
   "learning_rate": 5e-06,
@@ -24,6 +24,7 @@
   "projection_chunk": 32,
   "offload_layers": 16,
   "prefetch_depth": 2,
+  "update_placement": {"gpus": [0], "embedding": "offloaded"},
   "seed": 3407,
   "sampling": {
     "temperature": 1.0,

@@ -9,14 +9,15 @@ config_path=$(realpath -s -- "${2:?Suite configuration required}")
 [[ "$run_root" == "$runtime_root/results/"* && "$config_path" == "$run_root/"* ]]
 cd -- "$code_root"
 sha256sum --check "$run_root/SOURCE_SHA256SUMS" > "$run_root/source-verification.log"
+source "$code_root/launch-lib.sh"
 container_out="/results/$(basename -- "$run_root")"
 cpu() {
   docker run --rm --network none \
     -v "$code_root:/training-code:ro" -v "$runtime_root/results:/results" \
-    -v /ephemeral/audit-grpo-cache:/ephemeral/audit-grpo-cache \
+    -v "$CACHE:$CACHE" \
     -v "$config_path:/suite-config.json:ro" \
     -e PYTHONPATH=/training-code/inference -e PYTHONDONTWRITEBYTECODE=1 \
-    audit-grpo-deps:pilot-v4-conv /opt/pilot/gpu/bin/python \
+    "$CPU_IMAGE" /opt/pilot/gpu/bin/python \
     /training-code/inference/benchmark_suite.py "$1" \
     --config /suite-config.json --out "$container_out"
 }

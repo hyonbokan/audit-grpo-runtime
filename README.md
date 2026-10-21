@@ -12,11 +12,13 @@ Rules for changing anything here are in [AGENTS.md](AGENTS.md).
 |---|---|
 | `private/` | Operational state and experiment records (not in git). Start with `private/README.md`. |
 | `training-code/` | The maintained code: launchers, controller, native update, judge, evaluation. See its [README](training-code/README.md). |
+| `images/` | Dockerfile, locks and build script for the pinned runtime images. See [HOST_SETUP.md](HOST_SETUP.md). |
 | `diagnostic-tools/`, `backup-tools/` | Standalone utilities: checkpoint merge and comparison, checkpoint backup. `merge_checkpoint.py` is called by `launch-training.sh`. |
 | `archive/` | Finished-experiment code and the original extraction provenance. Read-only. |
 | `results/` | Run configs, receipts, grades, model output and reports: dated evidence (not in git). |
 | `workspace/` | Frozen backend snapshot used as `/workspace` (not in git). |
 | `live-status.sh` | Containers, GPU memory and the newest run's accepted checkpoint. |
+| `HOST_SETUP.md` | Preparing a new GPU host: requirements, restore from backup, images, checks. |
 
 ## Working on the code
 

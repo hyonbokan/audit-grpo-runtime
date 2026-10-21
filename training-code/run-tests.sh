@@ -10,10 +10,10 @@ code_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 runtime_root=$(dirname -- "$code_root")
 which=${1:-all}
 shift || true
-native_image=${NATIVE_IMAGE:-audit-grpo-vllm:benchmark-v1}
-judge_image=${JUDGE_IMAGE:-audit-grpo-deps:pilot-v3-cu130-compat}
+native_image=${NATIVE_IMAGE:-audit-grpo-vllm:cu129-v1}
+judge_image=${JUDGE_IMAGE:-audit-grpo-deps:cu129-v1}
 test_tools=${TEST_TOOLS:-$runtime_root/test-tools}
-frozen_backend=${FROZEN_BACKEND:-$runtime_root/next-phase-20261008/workspace/code/backend}
+frozen_backend=${FROZEN_BACKEND:-$runtime_root/workspace/code/backend}
 # Whitespace-separated paths; word splitting is intended.
 # shellcheck disable=SC2206
 unavailable=(${UNAVAILABLE_TESTS:-})
@@ -30,8 +30,12 @@ trap 'rm -rf "$copy"' EXIT
 rsync -a --exclude __pycache__ --exclude .pytest_cache --exclude .ruff_cache "$code_root/" "$copy/"
 mounts=(-v "$copy:/training-code" -v "$test_tools:/test-tools:ro"
   -v "$frozen_backend:/workspace/code/backend:ro")
-# The pinned tokenizer test reads the model cache when this host has one.
-[[ -d /ephemeral/audit-grpo-cache ]] && mounts+=(-v /ephemeral/audit-grpo-cache:/workspace/cache:ro)
+# The pinned tokenizer test reads the model cache when this host's host.env names one.
+if [[ -f "$runtime_root/host.env" ]]; then
+  # shellcheck source=/dev/null
+  source "$runtime_root/host.env"
+  [[ -d "${AUDIT_GRPO_CACHE:-}" ]] && mounts+=(-v "$AUDIT_GRPO_CACHE:/workspace/cache:ro")
+fi
 platform=()
 [[ -n "${DOCKER_PLATFORM:-}" ]] && platform=(--platform "$DOCKER_PLATFORM")
 ignored=()

@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from adapter_compat import verify_tensor_parallel
 from adapter_mapping import prepare_adapter
 from cycle_contract import validate_config, validate_policy_profile, write_event
 from evaluation import validate_evaluation_config
@@ -131,15 +132,12 @@ def run_rollout(phase: str, config: dict[str, Any], out: Path) -> dict[str, Any]
                 f"checkpoint-{step}-{digest[:12]}", step, str(mapped), load_inplace=True
             )
             engine.collective_rpc("load_adapter", args=(msgspec.to_builtins(adapter),))
-            reports = engine.collective_rpc("verify_adapter", args=(step, str(checkpoint), digest))
-            if len(reports) != 1:
-                raise ValueError("Exactly one local worker receipt required")
-            receipt["transfer"] = reports[0]
+            receipt["transfer"] = verify_active_adapter(engine, config, step, checkpoint, digest)
             write_event(
                 out,
                 "active_adapter_verified",
                 weight_version=version,
-                tensors=reports[0]["source_tensor_count"],
+                tensors=receipt["transfer"]["source_tensor_count"],
             )
         settings = dict(config["sampling"])
         if phase == "refresh":
@@ -200,6 +198,20 @@ def run_rollout(phase: str, config: dict[str, Any], out: Path) -> dict[str, Any]
         receipt["total_seconds"] = time.monotonic() - started
         (out / "receipt.json").write_text(json.dumps(receipt, indent=2, allow_nan=False) + "\n")
     return receipt
+
+
+def verify_active_adapter(
+    engine: Any, config: dict[str, Any], step: int, checkpoint: Path, digest: str
+) -> dict[str, Any]:
+    """Every rank's active LoRA buffers equal the native adapter."""
+    size = config["engine"].get("tensor_parallel_size", 1)  # vLLM's own default: one GPU.
+    if size == 1:
+        reports = engine.collective_rpc("verify_adapter", args=(step, str(checkpoint), digest))
+        if len(reports) != 1:
+            raise ValueError("Exactly one local worker receipt required")
+        return reports[0]
+    shards = engine.collective_rpc("adapter_shards", args=(step,))
+    return verify_tensor_parallel(shards, checkpoint, digest, size=size)
 
 
 if __name__ == "__main__":

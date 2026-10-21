@@ -1,12 +1,18 @@
 # Shared launcher pieces. Source after setting code_root and runtime_root.
 
-CPU_IMAGE=audit-grpo-deps:pilot-v4-conv
+CPU_IMAGE=audit-grpo-deps:cu129-v1
 # Long-running judge/backup container that holds the credentials; code is copied in per phase.
 LIVE_CONTAINER=audit-grpo-live
 LIVE_CODE=/opt/audit-grpo-training-code
 # Frozen backend dependencies, configs and data mounted as /workspace.
-FROZEN_WORKSPACE="$runtime_root/next-phase-20261008/workspace"
-CACHE=/ephemeral/audit-grpo-cache
+FROZEN_WORKSPACE="$runtime_root/workspace"
+# The cache is an absolute host path, so it lives in the git-ignored host.env.
+[[ -f "$runtime_root/host.env" ]] || {
+  echo "Missing $runtime_root/host.env: copy host.env.example and set this host's values" >&2
+  exit 2
+}
+source "$runtime_root/host.env"
+CACHE=${AUDIT_GRPO_CACHE:?host.env must set AUDIT_GRPO_CACHE to an absolute cache directory}
 
 # Worker mounts and environment; a launcher appends its config mount.
 mounts=(-v "$code_root:/training-code:ro" -v "$runtime_root:/runtime:ro"

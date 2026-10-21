@@ -14,6 +14,7 @@ from typing import Any
 from frozen_requests import extend_request, rerender_request
 from panels import evaluation_configs, merged_path, record_validation, validation_configs
 from progress import training_order, verify_dataset
+from retention import prune_visits, release_merge, require_free_space
 from runtime_io import new_result_dir, read_json, save_json, seconds_until, sha256_file, utc_now
 from schedules import scope
 
@@ -85,7 +86,30 @@ def phase_validation(config: dict, out: Path, _attempts: int) -> list[str]:
 
 def phase_record_validation(config: dict, out: Path, _attempts: int) -> list[str]:
     record_validation(config, out)
+    merges = {
+        read_json(Path(f) / "config.json")["merged_model_path"]
+        for f in read_json(out / "pending-validation.json")
+    }
+    for merged in sorted(merges):
+        release_merge(Path(merged), out / "merge-receipts" / f"{Path(merged).name}.json")
     return []
+
+
+def phase_prune(config: dict, out: Path, _attempts: int) -> list[str]:
+    """Free resume state and adapter copies no later phase reads; append the record."""
+    state = read_json(out / "state.json")
+    removed = prune_visits(state, scope(config)["storage"]["resume_states_kept"])
+    path = out / "retention.json"
+    record = read_json(path) if path.is_file() else []
+    record.append({"utc": utc_now().isoformat(), "removed": removed})
+    save_json(path, record)
+    return [json.dumps({"files": len(removed), "bytes": sum(e["bytes"] for e in removed)})]
+
+
+def phase_release_final_merge(config: dict, out: Path, _attempts: int) -> list[str]:
+    merged = Path(merged_path(config, read_json(out / "state.json")))
+    released = release_merge(merged, out / "merge-receipts" / f"{merged.name}.json")
+    return [json.dumps({"merged_model_path": str(merged), "bytes": released and released["bytes"]})]
 
 
 def phase_identity(config: dict, out: Path, _attempts: int) -> list[str]:
@@ -112,8 +136,10 @@ PHASES = {
     "record-failure": phase_record_failure,
     "validation": phase_validation,
     "record-validation": phase_record_validation,
+    "prune": phase_prune,
     "identity": phase_identity,
     "evaluation": phase_evaluation,
+    "release-final-merge": phase_release_final_merge,
 }
 
 
@@ -225,6 +251,7 @@ def next_cycle(config: dict, out: Path) -> str:
         root = read_json(pending)["root"]
         if root not in {visit["root"] for visit in state["visits"]}:
             # The controller stopped before recording this visit; resume it in place.
+            require_visit_space(config, out)
             return root
     order = read_json(out / "schedule.json")
     remaining = seconds_until(config["training_cutoff"])
@@ -239,6 +266,7 @@ def next_cycle(config: dict, out: Path) -> str:
             },
         )
         return "complete"
+    require_visit_space(config, out)
     identity = order[len(state["visits"])]
     request = read_json(out / "requests-manifest.json")[identity]
     cycle = copy.deepcopy(config["cycle"])
@@ -264,6 +292,12 @@ def next_cycle(config: dict, out: Path) -> str:
     save_json(root / "config.json", cycle)
     save_json(out / "pending-training.json", {"root": str(root), "row_id": identity})
     return str(root)
+
+
+def require_visit_space(config: dict, out: Path) -> None:
+    """Results, artifacts and merges must each have room before a visit writes to them."""
+    paths = [out, Path(config["artifact_host"]), Path(scope(config)["merge_cache"])]
+    require_free_space(paths, scope(config)["storage"]["minimum_free_gib"])
 
 
 def can_start_group(state: dict, remaining_seconds: float, config: dict) -> bool:

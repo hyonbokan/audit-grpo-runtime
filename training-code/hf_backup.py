@@ -154,8 +154,9 @@ def create_bundle(
 
 
 def remove_staging(bundle: Path) -> None:
-    """Drop the verified upload's local copies; the metadata file stays as the record."""
+    """Drop the upload's local copies; the metadata file stays as the record."""
     shutil.rmtree(bundle, ignore_errors=True)
+    shutil.rmtree(bundle.with_name(bundle.name + "-download-verified"), ignore_errors=True)
     bundle.with_suffix(".tar.gz").unlink(missing_ok=True)
     shutil.rmtree(bundle.parent / "hf-download-cache", ignore_errors=True)
 
@@ -224,7 +225,7 @@ def main() -> int:
     parser.add_argument("--source", required=True, type=Path)
     parser.add_argument("--workspace", required=True, type=Path)
     parser.add_argument("--label", required=True)
-    parser.add_argument("--phase", choices=("prepare", "upload"), required=True)
+    parser.add_argument("--phase", choices=("prepare", "upload", "discard"), required=True)
     args = parser.parse_args()
     config = json.loads(args.config.read_text())
     out = Path(config["backup_container"]) / args.label
@@ -234,6 +235,10 @@ def main() -> int:
         )
         save(out.with_suffix(".metadata.json"), metadata)
         print(json.dumps({"snapshot_prepared": args.label, "step": metadata["step"]}))
+    elif args.phase == "discard":
+        # A failed visit upload leaves its staging behind; the run's own files are untouched.
+        remove_staging(out)
+        print(json.dumps({"staging_discarded": args.label}))
     else:
         metadata = json.loads(out.with_suffix(".metadata.json").read_text())
         receipt = upload_verified(

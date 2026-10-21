@@ -92,8 +92,19 @@ visit_backup() {
   if ((status)); then
     event "backup-failed-$label"
     printf '%s %s %s\n' "$(date -u +%FT%TZ)" "$label" "$status" >> "$run_root/backup-failures.txt"
+    # Unuploaded staging would otherwise accumulate one bundle per failed visit.
+    docker run --rm --network none "${controller_mounts[@]}" -e "PYTHONPATH=$pythonpath" \
+      -e PYTHONDONTWRITEBYTECODE=1 "$CPU_IMAGE" /opt/pilot/gpu/bin/python -m hf_backup \
+      --phase discard --config /training-config.json --run "$container_out" \
+      --source /training-code --workspace /workspace --label "$label" \
+      >> "$run_root/backup-$label-prepare.log" 2>&1 || event "backup-discard-failed-$label"
   fi
   return 0
+}
+# Free resume state and adapter copies that no later phase reads (storage policy).
+prune() {
+  event prune
+  cpu prune >> "$run_root/retention.log"
 }
 merge() {
   local adapter=$1 output=$2
@@ -156,10 +167,12 @@ while true; do
     fi
     cpu record-failure --attempts "$attempts" >> "$run_root/training-record.log"
     visit_backup "visit-$(basename -- "$folder")"
+    prune
     continue
   fi
   cpu record >> "$run_root/training-record.log"
   visit_backup "visit-$(basename -- "$folder")"
+  prune
   event validation-prepare
   folders=$(cpu validation)
   if [[ -n "$folders" ]]; then
@@ -200,5 +213,7 @@ event evaluation-prepare
 suite=$(cpu evaluation)
 event evaluation
 bash "$code_root/launch-benchmark-suite.sh" "$suite" "$suite/config.json" > "$suite/launcher.log" 2>&1
+event release-final-merge
+cpu release-final-merge >> "$run_root/retention.log"
 backup evaluated-final
 event complete

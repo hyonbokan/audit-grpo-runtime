@@ -4,10 +4,14 @@ import os
 import subprocess
 from pathlib import Path
 
+from testing.host import write_host_settings
+
 LIB = Path(__file__).with_name("launch-lib.sh")
 
 
 def run(script: str, tmp_path: Path, **env: str) -> subprocess.CompletedProcess:
+    if not (tmp_path / "host.env").exists():
+        write_host_settings(tmp_path)
     prelude = f'code_root={tmp_path}; runtime_root={tmp_path}; source "{LIB}"\n'
     return subprocess.run(
         ["bash", "-c", prelude + script],
@@ -45,4 +49,24 @@ def test_deadline_timer_replaces_a_stale_unit_and_stops_the_named_containers(tmp
         "systemctl reset-failed unit.timer unit.service",
         f"systemd-run --quiet --unit unit --on-active=90s {stop}",
         "systemctl is-active --quiet unit.timer",
+    ]
+
+
+def test_launchers_refuse_to_start_without_this_hosts_settings(tmp_path):
+    prelude = f'code_root={tmp_path}; runtime_root={tmp_path}; source "{LIB}"; echo sourced'
+    result = subprocess.run(["bash", "-c", prelude], capture_output=True, text=True)
+    assert result.returncode == 2 and "sourced" not in result.stdout
+    assert f"{tmp_path}/host.env" in result.stderr and "host.env.example" in result.stderr
+    (tmp_path / "host.env").write_text("# no cache yet\n")
+    result = subprocess.run(["bash", "-c", prelude], capture_output=True, text=True)
+    assert result.returncode != 0 and "AUDIT_GRPO_CACHE" in result.stderr
+
+
+def test_host_settings_set_the_cache_and_the_restored_workspace(tmp_path):
+    cache = write_host_settings(tmp_path)
+    result = run('printf "%s\\n" "$CACHE" "$FROZEN_WORKSPACE" "$CPU_IMAGE"', tmp_path)
+    assert result.stdout.splitlines() == [
+        str(cache),
+        f"{tmp_path}/workspace",
+        "audit-grpo-deps:cu129-v1",
     ]

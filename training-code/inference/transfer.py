@@ -83,3 +83,32 @@ def verify_transfer(
         "failures": failures,
         "lora_B_scaling_verified": scaling,
     }
+
+
+def merge_tensor_parallel(shards: list[dict[str, Any]], *, size: int) -> dict[str, Any]:
+    """One full-layout payload from each rank's buffers, for `verify_transfer`."""
+    ordered = sorted(shards, key=lambda shard: shard["rank"])
+    if [shard["rank"] for shard in ordered] != list(range(size)):
+        raise ValueError(f"Adapter verification needs one shard per rank 0..{size - 1}")
+    first = ordered[0]
+    layout = ("packed", "modules", "sharded_dims")
+    for shard in ordered[1:]:
+        if any(shard[key] != first[key] for key in layout) or set(shard["gpu"]) != set(
+            first["gpu"]
+        ):
+            raise ValueError(f"Adapter layout differs between rank 0 and rank {shard['rank']}")
+    gpu = {}
+    for key, slices in first["gpu"].items():
+        dim = first["sharded_dims"].get(key)  # Absent: vLLM replicates this buffer.
+        merged = []
+        for index in range(len(slices)):
+            parts = [shard["gpu"][key][index] for shard in ordered]
+            if dim is not None:
+                merged.append(torch.cat(parts, dim=dim))
+            elif all(torch.equal(parts[0], part) for part in parts[1:]):
+                merged.append(parts[0])
+            else:
+                raise ValueError(f"Replicated adapter buffer differs between ranks: {key}")
+        gpu[key] = merged
+    # The loaded CPU copy is the full unsliced adapter on every rank; rank 0 reports it.
+    return {"packed": first["packed"], "modules": first["modules"], "cpu": first["cpu"], "gpu": gpu}

@@ -41,6 +41,8 @@ rollout_image=${values[1]}
 seconds=${values[2]}  # already capped at the absolute deadline
 judge_seconds=${values[3]}
 skip_uninformative=${values[4]}
+update_gpus=${values[5]}
+rollout_gpus=${values[6]}
 if ((seconds <= 0)); then echo "Absolute deadline has passed" >&2; exit 124; fi
 if ((!resume)); then
   docker run --rm --network none "${mounts[@]}" "${environment[@]}" "$native_image" \
@@ -69,14 +71,14 @@ trap 'exit 143' TERM
 start_deadline_timer "$timer" "$seconds" "$prefix-rollout" "$prefix-update" "$prefix-refresh"
 
 gpu_phase() {
-  local image=$1 memory=$2 container="$prefix-$phase"
+  local image=$1 memory=$2 gpus=$3 container="$prefix-$phase"
   local phase_started
   phase_started=$(date +%s)
-  shift 2
+  shift 3
   containers+=("$container")
   docker rm "$container" >/dev/null 2>&1 || true
   timeout --foreground -k 10 "$(remaining)s" docker run --name "$container" \
-    --network none --gpus all --cpus 8 --memory "$memory" --shm-size 16g \
+    --network none --gpus "$gpus" --cpus 8 --memory "$memory" --shm-size 16g \
     "${mounts[@]}" "${environment[@]}" "$image" /opt/pilot/gpu/bin/python "$@" \
     > "$run_root/$phase.log" 2>&1
   printf '%s\n' "$(( $(date +%s) - phase_started ))" > "$run_root/$phase-seconds.txt"
@@ -89,7 +91,7 @@ sys.exit(json.load(open(sys.argv[1])).get("status") != sys.argv[2])' "$receipt" 
 }
 
 phase=rollout
-phase_complete rollout || gpu_phase "$rollout_image" 64g /training-code/inference/rollout.py \
+phase_complete rollout || gpu_phase "$rollout_image" 64g "$rollout_gpus" /training-code/inference/rollout.py \
   rollout --config "$config" --out "$container_out/rollout"
 
 phase=grading
@@ -113,11 +115,11 @@ if [[ "$skip_uninformative" == true ]]; then
 fi
 
 phase=update
-phase_complete update || gpu_phase "$native_image" 128g -m grpo.corrected_update \
+phase_complete update || gpu_phase "$native_image" 128g "$update_gpus" -m grpo.corrected_update \
   --config "$config" --out "$container_out/update"
 
 phase=refresh
-phase_complete refresh || gpu_phase "$rollout_image" 64g /training-code/inference/rollout.py \
+phase_complete refresh || gpu_phase "$rollout_image" 64g "$rollout_gpus" /training-code/inference/rollout.py \
   refresh --config "$config" --out "$container_out/refresh"
 
 phase=acceptance

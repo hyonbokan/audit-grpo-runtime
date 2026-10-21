@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import schedules
+from grpo.placement import docker_gpus, load_options, rollout_gpus
 
 CONDITIONS = (
     "complete_group",
@@ -51,8 +52,11 @@ def validate_config(config: dict[str, Any]) -> None:
         required["engine"]["max_model_len"] = reviewed["maximum_context"]
         required["engine"]["gpu_memory_utilization"] = limits["gpu_memory_utilization"]
         required["sampling"]["max_tokens"] = reviewed["maximum_context"] - prompt_count
-        for name in ("offload_layers", "prefetch_depth"):
+        for name in ("offload_layers", "prefetch_depth", "update_placement"):
             required[name] = limits.get(name, required[name])
+        # Absent means vLLM's single-GPU default, the only setting older schedules ran.
+        if "tensor_parallel_size" in limits:
+            required["engine"]["tensor_parallel_size"] = limits["tensor_parallel_size"]
         limits = dict(limits, sampling=required["sampling"])
         required["weekend"] = limits
     continuation = config.get("schedule_id") is not None
@@ -118,6 +122,7 @@ def validate_config(config: dict[str, Any]) -> None:
         "max_grad_norm",
         "offload_layers",
         "prefetch_depth",
+        "update_placement",
         "seed",
         "sampling",
         "engine",
@@ -136,6 +141,8 @@ def validate_config(config: dict[str, Any]) -> None:
                 for name in changed
             )
         )
+    load_options(config["update_placement"])
+    rollout_gpus(config["engine"])
     for name in ("seconds_limit", "judge_seconds_limit"):
         upper = required[name]
         if type(config.get(name)) is not int or not 0 < config[name] <= upper:
@@ -344,7 +351,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def launcher_settings(config: dict[str, Any]) -> list[str]:
-    """Lines read by launch-cycle.sh: images, time limits capped at the deadline, skip policy."""
+    """Lines read by launch-cycle.sh: images, capped time limits, skip policy, phase GPUs."""
     until_deadline = int(
         (datetime.fromisoformat(config["absolute_deadline"]) - datetime.now(UTC)).total_seconds()
     )
@@ -354,6 +361,8 @@ def launcher_settings(config: dict[str, Any]) -> list[str]:
         str(min(config["seconds_limit"], until_deadline)),
         str(config["judge_seconds_limit"]),
         str(config.get("skip_uninformative_groups", False)).lower(),
+        docker_gpus(config["update_placement"]["gpus"]),
+        docker_gpus(rollout_gpus(config["engine"])),
     ]
 
 

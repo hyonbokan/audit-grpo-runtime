@@ -37,6 +37,9 @@ def support_logprobs(
             or token not in ids
         ):
             raise ValueError("Invalid recorded support")
+    if hidden.device != weight.device:
+        # A layer split must end on the head's GPU; a silent copy would hide a bad device map.
+        raise ValueError(f"Final hidden states on {hidden.device}, output head on {weight.device}")
     outputs = []
     for start in range(0, len(chosen), chunk):
         rows = support[start : start + chunk]

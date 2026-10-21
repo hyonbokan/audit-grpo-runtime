@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from grpo.corrected_loss import corrected_loss, support_logprobs
+from grpo.placement import layer_devices
 
 
 def join_update_group(
@@ -188,7 +189,12 @@ def run_update(config: dict[str, Any], out: Path) -> dict[str, Any]:
             else None
         )
         before = load_file(str(checkpoint / "adapter_model.safetensors"))
-        receipt["embedding_bytes_offloaded"] = restore_existing_embedding_offload(model)
+        receipt["layer_devices"] = layer_devices(layers)
+        embedding = config["update_placement"]["embedding"]
+        receipt["embedding_placement"] = embedding
+        receipt["embedding_bytes_offloaded"] = (
+            restore_existing_embedding_offload(model) if embedding == "offloaded" else 0
+        )
         receipt["checkpoint_layers"] = install_cpu_checkpoints(layers, memory)
         write_event(out, "optimizer_step_start", source_version=expected_version)
         metrics = apply_update(model, optimizer, group, config, expected_version=expected_version)
@@ -205,10 +211,15 @@ def run_update(config: dict[str, Any], out: Path) -> dict[str, Any]:
                 scheduler=scheduler,
             )
         )
+        peaks = [
+            torch.cuda.max_memory_allocated(device) / 2**30
+            for device in range(torch.cuda.device_count())
+        ]
         receipt.update(
             status="corrected_update_saved",
             global_step=config["target_step"],
-            peak_allocated_gib=torch.cuda.max_memory_allocated() / 2**30,
+            peak_allocated_gib=max(peaks),
+            peak_allocated_gib_by_device=peaks,
             checkpoint_input_offloaded_bytes=memory.offloaded_bytes,
         )
         write_event(

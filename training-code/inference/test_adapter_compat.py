@@ -6,6 +6,7 @@ import msgspec
 import pytest
 from vllm.lora.request import LoRARequest
 
+import adapter_compat
 from adapter_compat import VerifiedAdapterWorker
 
 
@@ -36,3 +37,74 @@ def test_invalid_rpc_identity_is_rejected_before_loading():
     worker = SimpleNamespace(model_runner=ModelRunnerBoundary())
     with pytest.raises((ValueError, msgspec.ValidationError)):
         VerifiedAdapterWorker.load_adapter(worker, ["invalid", 0, "/new/adapter"])
+
+
+# --- Tensor-parallel layout
+
+
+def layer(name, **attributes):
+    """A LoRA layer stand-in; the layout rule is chosen by vLLM's class name."""
+    return type(name, (), attributes)()
+
+
+@pytest.mark.parametrize(
+    "name,dims",
+    [
+        ("MergedQKVParallelLinearWithLoRA", {"lora_b_stacked": -2}),
+        ("MergedColumnParallelLinearWithLoRA", {"lora_b_stacked": -2}),
+        ("MergedColumnParallelLinearVariableSliceWithLoRA", {"lora_b_stacked": -2}),
+        ("RowParallelLinearWithLoRA", {"lora_a_stacked": -1}),
+        ("ReplicatedLinearWithLoRA", {}),
+    ],
+)
+def test_each_reviewed_layer_names_the_dimension_vllm_splits(name, dims):
+    base = SimpleNamespace(num_kv_head_replicas=1)
+    assert adapter_compat.sharded_dims(layer(name, base_layer=base)) == dims
+
+
+def test_plain_column_layer_splits_lora_b_unless_it_packs_gate_and_up():
+    assert adapter_compat.sharded_dims(
+        layer("ColumnParallelLinearWithLoRA", is_merged_col_linear=False)
+    ) == {"lora_b_stacked": -2}
+    with pytest.raises(ValueError, match="interleaves"):
+        adapter_compat.sharded_dims(
+            layer("ColumnParallelLinearWithLoRA", is_merged_col_linear=True)
+        )
+
+
+@pytest.mark.parametrize(
+    "module",
+    [
+        layer("QKVParallelLinearWithLoRA"),
+        layer("ColumnParallelLinearWithShardedLoRA"),
+        layer(
+            "MergedQKVParallelLinearWithLoRA",
+            base_layer=SimpleNamespace(num_kv_head_replicas=2),
+        ),
+    ],
+)
+def test_unreviewed_or_overlapping_layouts_are_rejected(module):
+    with pytest.raises(ValueError):
+        adapter_compat.sharded_dims(module)
+
+
+def test_shards_report_the_rank_every_lora_layer_agrees_on():
+    manager = SimpleNamespace(
+        lora_config=SimpleNamespace(fully_sharded_loras=False),
+        get_adapter=lambda _id: SimpleNamespace(id=7, loras={}),
+        lora_index_to_id=[7],
+        packed_modules={},
+        modules={
+            "a": layer("ReplicatedLinearWithLoRA", tp_rank=1),
+            "b": layer("RowParallelLinearWithLoRA", tp_rank=1),
+        },
+    )
+    worker = SimpleNamespace(
+        model_runner=SimpleNamespace(lora_manager=SimpleNamespace(_adapter_manager=manager))
+    )
+    shard = VerifiedAdapterWorker.adapter_shards(worker, 7)
+    assert (shard["rank"], shard["slot"], shard["cpu"]) == (1, 0, {})
+    assert shard["sharded_dims"] == {"b.lora_a_stacked": -1}
+    manager.modules["a"] = layer("ReplicatedLinearWithLoRA", tp_rank=0)
+    with pytest.raises(ValueError, match="disagree"):
+        VerifiedAdapterWorker.adapter_shards(worker, 7)

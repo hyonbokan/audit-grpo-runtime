@@ -9,6 +9,8 @@ import random
 from pathlib import Path
 from typing import Any
 
+from grpo.placement import load_options
+
 
 def restore_optimizer(
     model: Any,
@@ -93,7 +95,7 @@ def load_policy(
         text_only=True,
         return_logits=True,
         max_seq_length=plan["model"]["context_limit"],
-        offload_embedding=True,
+        **load_options(config["update_placement"]),
     )
     model = FastModel.get_peft_model(
         model,
@@ -135,7 +137,8 @@ def load_policy(
         torch.cuda.set_rng_state_all(rng["cuda"])
     else:
         torch.cuda.set_rng_state(rng["cuda"])
-    torch.cuda.reset_peak_memory_stats()
+    for device in range(torch.cuda.device_count()):
+        torch.cuda.reset_peak_memory_stats(device)
     return model, ActivationOffload(model), layers
 
 

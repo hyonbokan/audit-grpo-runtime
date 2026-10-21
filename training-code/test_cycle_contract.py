@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 import cycle_contract
+import schedules
 from testing.clock import freeze
 from testing.cycles import schedule_cycle
 
@@ -79,7 +80,6 @@ def test_reviewed_cycle_allows_time_for_generation_training_and_refresh():
 
 
 def test_cli_rejects_missing_checkpoint_without_creating_prepared_receipt(tmp_path, monkeypatch):
-
     freeze(monkeypatch, cycle_contract, "2026-10-09T00:00:00+00:00")
     config = json.loads((Path(__file__).parent / "fixtures/cycle.json").read_text())
     config["checkpoint"] = str(tmp_path / "absent")
@@ -282,6 +282,8 @@ def test_launcher_settings_cap_the_cycle_at_the_absolute_deadline(monkeypatch, n
         str(seconds),
         str(config["judge_seconds_limit"]),
         "false",
+        '"device=0"',
+        '"device=0"',
     ]
 
 
@@ -292,3 +294,57 @@ def test_launcher_settings_report_a_passed_deadline_as_no_time_left(monkeypatch)
     settings = cycle_contract.launcher_settings(config)
     assert int(settings[2]) <= 0
     assert settings[4] == "true"
+
+
+# --- GPU placement
+
+SPLIT = {"gpus": [0, 1], "embedding": "gpu", "max_memory_gib": 44}
+
+
+@pytest.fixture
+def split_schedule(tmp_path, monkeypatch):
+    """The medium-day schedule, registered again with a two-GPU update and rollout."""
+    registry = json.loads(schedules.REGISTRY.read_text())
+    reviewed = registry["schedules"]["medium-day-20261010"]
+    training = dict(reviewed["training"], update_placement=SPLIT, tensor_parallel_size=2)
+    registry["schedules"]["split"] = dict(reviewed, training=training)
+    path = tmp_path / "schedules.json"
+    path.write_text(json.dumps(registry))
+    monkeypatch.setattr(schedules, "REGISTRY", path)
+    return schedule_cycle("split")
+
+
+def test_a_registered_split_is_validated_and_exposes_both_gpus_to_each_phase(
+    split_schedule, monkeypatch
+):
+    config = split_schedule
+    assert config["update_placement"] == SPLIT
+    assert config["engine"]["tensor_parallel_size"] == 2
+    cycle_contract.validate_config(config)
+    freeze(monkeypatch, cycle_contract, "2026-10-10T00:00:00+00:00")
+    assert cycle_contract.launcher_settings(config)[5:] == ['"device=0,1"', '"device=0,1"']
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"update_placement": {"gpus": [0], "embedding": "offloaded"}},
+        {"update_placement": {**SPLIT, "max_memory_gib": 47}},
+    ],
+)
+def test_a_cycle_cannot_change_the_reviewed_update_placement(split_schedule, change):
+    with pytest.raises(ValueError, match="update_placement"):
+        cycle_contract.validate_config({**split_schedule, **change})
+
+
+def test_a_cycle_cannot_change_the_reviewed_tensor_parallel_size(split_schedule):
+    split_schedule["engine"]["tensor_parallel_size"] = 1
+    with pytest.raises(ValueError, match="tensor_parallel_size"):
+        cycle_contract.validate_config(split_schedule)
+
+
+def test_schedules_without_placement_keep_the_one_gpu_update():
+    config = schedule_cycle("medium-day-20261010")
+    assert config["update_placement"] == {"gpus": [0], "embedding": "offloaded"}
+    assert "tensor_parallel_size" not in config["engine"]
+    cycle_contract.validate_config(config)

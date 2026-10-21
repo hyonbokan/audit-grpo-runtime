@@ -6,11 +6,14 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from testing.host import write_host_settings
+
 
 def test_failed_gpu_process_preserves_exit_and_stops_the_cycle(tmp_path):
     root = tmp_path / "runtime"
     code = root / "training-code"
     code.mkdir(parents=True)
+    write_host_settings(root)
     run = root / "results/test-cycle"
     run.mkdir(parents=True)
     source = Path(__file__).parent / "launch-cycle.sh"
@@ -28,10 +31,10 @@ case "$1" in
 run)
   if [[ "$*" == *'cycle_contract settings'* ]]; then
     [[ "$*" == *'/run-config.json'* ]] || exit 93
-    printf '%s\\n' native rollout 20 10 false; exit 0
+    printf '%s\\n' native rollout 20 10 false '"device=0"' '"device=0,1"'; exit 0
   fi
   for arg in "$@"; do
-    if [[ "$arg" == --name ]]; then echo 'GPU boundary failed'; exit 57; fi
+    if [[ "$arg" == --name ]]; then echo "GPU boundary failed $*"; exit 57; fi
   done
   exit 0;;
 inspect) echo '{"Status":"exited","ExitCode":57}';;
@@ -58,6 +61,7 @@ esac
     assert (run / "launcher-exit.txt").read_text().strip() == "57"
     assert (run / "last-phase.txt").read_text().strip() == "rollout"
     assert "GPU boundary failed" in (run / "rollout.log").read_text()
+    assert '--gpus "device=0,1"' in (run / "rollout.log").read_text()
     assert (run / "audit-grpo-test-cycle-rollout-state.json").exists()
     assert not (run / "grading.log").exists()
     assert not (run / "update.log").exists()
@@ -67,6 +71,7 @@ def test_resume_skips_completed_phases_and_archives_the_failed_attempt(tmp_path)
     root = tmp_path / "runtime"
     code = root / "training-code"
     code.mkdir(parents=True)
+    write_host_settings(root)
     run = root / "results/test-cycle"
     run.mkdir(parents=True)
     for name in ("launch-cycle.sh", "launch-lib.sh", "cycle_recovery.py"):
@@ -94,7 +99,7 @@ case "$1" in
 run)
   [[ "$*" != *'cycle_contract prepare'* ]] || exit 94
   if [[ "$*" == *'cycle_contract settings'* ]]; then
-    printf '%s\\n' native rollout 20 10 false; exit 0
+    printf '%s\\n' native rollout 20 10 false '"device=0"' '"device=0,1"'; exit 0
   fi
   for arg in "$@"; do
     if [[ "$arg" == --name ]]; then echo "GPU phase $*" >&2; exit 57; fi
@@ -121,6 +126,7 @@ esac
     )
     assert result.returncode == 57, result.stderr
     assert (run / "last-phase.txt").read_text().strip() == "update"
+    assert '--gpus "device=0"' in (run / "update.log").read_text()
     assert "update" in (run / "update.log").read_text()
     assert (run / "rollout.log").read_text() == "completed rollout"
     assert (run / "grading/rewards.json").exists()

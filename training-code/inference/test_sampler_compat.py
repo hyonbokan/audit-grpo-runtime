@@ -1,6 +1,7 @@
 """Real V2 call sites must use the shared filter and restore after failures."""
 
 import math
+import re
 
 import pytest
 import torch
@@ -57,6 +58,31 @@ def test_worker_rpc_scope_restores_real_filter_when_operation_fails():
         raise RuntimeError("operation failed")
     assert sampler.apply_top_k_top_p is original
     worker.disable_native_sampling()
+
+
+@pytest.mark.parametrize("installed", ["0.31.0", "0.31.0+cu129"])
+def test_reviewed_builds_of_the_pinned_release_are_accepted(monkeypatch, installed):
+    monkeypatch.setattr(sampler_compat.importlib.metadata, "version", lambda _name: installed)
+    assert sampler_compat.require_pinned_vllm() == installed
+
+
+@pytest.mark.parametrize("installed", ["0.31.1", "0.31.0+cpu", "0.31.0rc1"])
+def test_other_vllm_builds_are_rejected_with_the_allowed_values(monkeypatch, installed):
+    monkeypatch.setattr(sampler_compat.importlib.metadata, "version", lambda _name: installed)
+    allowed = r"allowed \['0\.31\.0', '0\.31\.0\+cu129'\]"
+    with pytest.raises(ValueError, match=rf"installed {re.escape(installed)}, {allowed}"):
+        sampler_compat.require_pinned_vllm()
+
+
+def test_worker_receipt_reports_the_installed_vllm_build():
+    import importlib.metadata
+
+    worker = sampler_compat.NativeSamplingWorker()
+    try:
+        receipt = worker.enable_native_sampling()
+    finally:
+        worker.disable_native_sampling()
+    assert receipt == {"filter": "native_torch", "vllm_version": importlib.metadata.version("vllm")}
 
 
 def test_unsupported_version_is_rejected_before_installing_hooks(monkeypatch):

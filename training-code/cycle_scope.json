@@ -14,6 +14,7 @@
   "max_grad_norm": 1.0,
   "offload_layers": 16,
   "prefetch_depth": 2,
+  "update_placement": {"gpus": [0], "embedding": "offloaded"},
   "seed": 3407,
   "sampling": {
     "temperature": 1.0,

@@ -1,5 +1,6 @@
 """Catch missing modules, stale buffers, and unnoticed adapter precision loss."""
 
+import pytest
 import torch
 
 import transfer
@@ -106,3 +107,66 @@ def test_gdn_qkv_group_expands_to_three_gpu_slices_and_z_follows():
     assert verify(source, payload)["exact_transfer_verified"]
     payload["gpu"][name + ".lora_a_stacked"][1] = torch.tensor([[[9.0, 2.0]]])
     assert not verify(source, payload)["exact_transfer_verified"]
+
+
+# --- Tensor parallel shards
+
+
+def shards():
+    """Two ranks of one column-parallel layer: lora_b rows split, lora_a replicated."""
+    a = torch.tensor([[[1.0, 2.0]]])
+    module = "language_model.model.layers.0.x"
+    cpu = {
+        module + ".lora_a": [torch.tensor([[1.0, 2.0]])],
+        module + ".lora_b": [torch.tensor([[6.0], [8.0]])],
+    }
+    return [
+        {
+            "rank": rank,
+            "packed": {},
+            "modules": [module],
+            "cpu": cpu if rank == 0 else {},
+            "gpu": {
+                module + ".lora_a_stacked": [a.clone()],
+                module + ".lora_b_stacked": [torch.tensor([[[6.0 + 2 * rank]]])],
+            },
+            "sharded_dims": {module + ".lora_b_stacked": -2},
+        }
+        for rank in (1, 0)
+    ]
+
+
+def test_rank_shards_rebuild_the_full_buffers_in_rank_order():
+    payload = transfer.merge_tensor_parallel(shards(), size=2)
+    module = "language_model.model.layers.0.x"
+    assert torch.equal(
+        payload["gpu"][module + ".lora_b_stacked"][0], torch.tensor([[[6.0], [8.0]]])
+    )
+    assert torch.equal(payload["gpu"][module + ".lora_a_stacked"][0], torch.tensor([[[1.0, 2.0]]]))
+    source = {
+        "base_model.model.model.layers.0.x.lora_A.weight": torch.tensor([[1.0, 2.0]]),
+        "base_model.model.model.layers.0.x.lora_B.weight": torch.tensor([[3.0], [4.0]]),
+    }
+    assert verify(source, payload)["exact_transfer_verified"]
+
+
+def test_a_replicated_buffer_that_differs_between_ranks_is_rejected():
+    parts = shards()
+    parts[0]["gpu"]["language_model.model.layers.0.x.lora_a_stacked"][0][0, 0, 0] = 9.0
+    with pytest.raises(ValueError, match="differs between ranks"):
+        transfer.merge_tensor_parallel(parts, size=2)
+
+
+@pytest.mark.parametrize("ranks", [[0], [0, 0], [0, 2]])
+def test_shards_must_cover_every_rank_exactly_once(ranks):
+    parts = shards()[:1] * len(ranks)
+    parts = [dict(part, rank=rank) for part, rank in zip(parts, ranks, strict=True)]
+    with pytest.raises(ValueError, match="one shard per rank"):
+        transfer.merge_tensor_parallel(parts, size=2)
+
+
+def test_ranks_must_report_the_same_layout():
+    parts = shards()
+    parts[0]["sharded_dims"] = {}
+    with pytest.raises(ValueError, match="layout differs"):
+        transfer.merge_tensor_parallel(parts, size=2)

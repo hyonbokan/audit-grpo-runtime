@@ -30,6 +30,10 @@ def schedule_cycle(schedule_id: str, initial_step: int | None = None) -> dict:
         offload_layers=training["offload_layers"],
         prefetch_depth=training["prefetch_depth"],
     )
+    if "update_placement" in training:
+        config["update_placement"] = training["update_placement"]
+    if "tensor_parallel_size" in training:
+        config["engine"]["tensor_parallel_size"] = training["tensor_parallel_size"]
     config["sampling"]["max_tokens"] = reviewed["maximum_context"] - PROMPT_TOKENS
     config["engine"]["max_model_len"] = reviewed["maximum_context"]
     config["engine"]["gpu_memory_utilization"] = training["gpu_memory_utilization"]

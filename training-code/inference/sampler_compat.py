@@ -9,13 +9,13 @@ from typing import Any
 
 from grpo.sampling import filter_logits
 
-SUPPORTED_VLLM_VERSION = "0.31.0"
+# Reviewed builds of the pinned release; the local tag names only the CUDA build.
+SUPPORTED_VLLM_BUILDS = frozenset({"0.31.0", "0.31.0+cu129"})
 
 
 @contextmanager
 def native_sampling_scope() -> Iterator[None]:
-    if importlib.metadata.version("vllm") != SUPPORTED_VLLM_VERSION:
-        raise ValueError("Native sampling compatibility requires pinned vLLM 0.31.0")
+    require_pinned_vllm()
     # V2 resolves filtering through both globals; changing one leaves replay inconsistent.
     from vllm.v1.worker.gpu.sample import sampler, states
 
@@ -28,6 +28,17 @@ def native_sampling_scope() -> Iterator[None]:
     finally:
         for module, original in zip(modules, originals, strict=True):
             module.apply_top_k_top_p = original
+
+
+def require_pinned_vllm() -> str:
+    """Return the installed vLLM version, or raise unless it is a reviewed build."""
+    installed = importlib.metadata.version("vllm")
+    if installed not in SUPPORTED_VLLM_BUILDS:
+        raise ValueError(
+            f"Compatibility requires pinned vLLM layout: installed {installed}, "
+            f"allowed {sorted(SUPPORTED_VLLM_BUILDS)}"
+        )
+    return installed
 
 
 @contextmanager
@@ -49,7 +60,7 @@ class NativeSamplingWorker:
         context = native_sampling_scope()
         context.__enter__()
         self._native_sampling_context = context
-        return {"filter": "native_torch", "vllm_version": SUPPORTED_VLLM_VERSION}
+        return {"filter": "native_torch", "vllm_version": importlib.metadata.version("vllm")}
 
     def disable_native_sampling(self) -> None:
         context = getattr(self, "_native_sampling_context", None)

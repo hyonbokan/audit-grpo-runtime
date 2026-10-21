@@ -11,7 +11,7 @@ backend=${FROZEN_BACKEND:-$(cd -- "$code_root/../../../../.." && pwd)}
   echo "No backend with llm_router and scripts/finetuning/tools at $backend; set FROZEN_BACKEND" >&2
   exit 2
 }
-image=${LOCAL_IMAGE:-audit-grpo-deps:pilot-v3}
+image=${LOCAL_IMAGE:-audit-grpo-deps:cu129-v1}
 [[ -n "$(docker image ls -q "$image")" ]] || { echo "Docker image $image not found" >&2; exit 2; }
 
 # pytest is not in the pinned images; install it once into a cache directory.

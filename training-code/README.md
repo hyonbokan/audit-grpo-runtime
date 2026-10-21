@@ -24,6 +24,7 @@ in `../private/` (not in git; start with its README).
 | `frozen_requests.py` | Freezes each training row's prompt tokens for a run. |
 | `progress.py` | Training order, update/skip decision, checkpoint selection. |
 | `hf_backup.py` | Verified private HF backups (thin per visit, full at start and end). |
+| `retention.py` | Disk retention: prunes resume state and adapter copies, releases evaluated merges, checks free space. |
 | `audited_corpus.py`, `corpus_*.py` | Builds the frozen training corpus from human-audit labels. |
 | `private/` | Not in git: the frozen policy rendering (production audit prompt and answer schema) that the corpus builder and reward worker hash. Copy it in before a run; both fail loudly without it. |
 | `grpo/` | Native update (`corrected_update`, `corrected_loss`, `native_policy`), judge (`judge_worker`, `reward`, `budget`, `judge_cache`). |
@@ -57,6 +58,9 @@ shared config builders are in `testing/` (excluded from `SOURCE_SHA256SUMS`).
 
 ## Start a training run
 
+Each host needs `../host.env` (git-ignored; copy `../host.env.example`) naming its cache
+directory. The launchers exit 2 without it.
+
 1. Add the schedule to `schedules.json` (`training_cutoff`, `final_deadline`, `training`
    steps and group limits; anything unset takes `defaults`). An unregistered
    `schedule_id` is rejected.
@@ -84,6 +88,37 @@ Do not edit `training-code/` while a run is live: every visit re-verifies the ha
   checkpoint. Exit 124 (deadline), 130 and 143 (operator stop) are never retried.
 - Checkpoints are written as `checkpoint-N.partial` and renamed when complete. The shared
   judge ledger is replaced atomically under `<ledger>.lock`.
+
+## GPU placement
+
+A schedule's `training` block chooses where each phase puts the model; `cycle_contract`
+holds every cycle to it and `launch-cycle.sh` exposes only those GPUs to each container.
+
+- `update_placement` (default `{"gpus": [0], "embedding": "offloaded"}`): one GPU, or a layer
+  split such as `{"gpus": [0, 1], "embedding": "gpu", "max_memory_gib": 44}` placed by
+  Unsloth's planner (`grpo/placement.py`). A split keeps the embedding on GPU because Unsloth
+  declines embedding offload for a dispatched model. `offload_layers` still streams that many
+  frozen layers from host RAM. The update receipt records `layer_devices` and the peak memory
+  of every GPU.
+- `tensor_parallel_size` (default 1): vLLM tensor parallelism for rollout and refresh. With
+  more than one rank, each rank reports its LoRA buffers (`adapter_shards`) and the driver
+  rebuilds and verifies the full adapter (`adapter_compat.verify_tensor_parallel`).
+
+## Disk retention
+
+Nothing has to be cleaned by hand during a run; the policy is `storage` in `schedules.json`.
+
+- After every recorded visit, `controller prune` deletes the vLLM adapter copies
+  (`rollout/` and `refresh/mapped-adapter/`; the phase receipts keep their hashes) and the
+  resume-only files (`optimizer.pt`, `scheduler.pt`, `rng_state.pth`) of every accepted
+  checkpoint except the newest `resume_states_kept`. Adapters are never deleted. Each
+  deletion is appended to the run's `retention.json`.
+- Merged models are deleted once evaluated: validation merges in `record-validation`,
+  the final merge after the benchmark suite. The `MERGE_MANIFEST.json` is kept in the
+  run's `merge-receipts/`; `launch-training.sh` re-merges from the adapter if needed again.
+- A failed visit upload discards its local staging bundle; the visit itself stays on disk.
+- `controller next` refuses to start or resume a visit when the run, artifact or merge
+  disk has less than `minimum_free_gib` free. Free space, then `--resume`.
 
 ## Judge calls
 

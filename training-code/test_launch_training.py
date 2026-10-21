@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+from testing.host import write_host_settings
+
 CODE = Path(__file__).parent
 
 
@@ -21,6 +23,7 @@ class Runtime:
         self.code.mkdir(parents=True)
         for name in ("launch-training.sh", "launch-lib.sh"):
             shutil.copyfile(CODE / name, self.code / name)
+        write_host_settings(tmp_path / "runtime")
         self.run = tmp_path / "runtime/results/run"
         self.run.mkdir(parents=True)
         self.config = self.run / "config.json"
@@ -135,6 +138,29 @@ def test_a_failed_visit_backup_is_reported_but_does_not_end_training(runtime):
     assert "backup-failed-visit-run-visit-001" in result.stdout, result.stdout + result.stderr
     assert "visit-run-visit-001 1" in runtime.read("backup-failures.txt")
     assert runtime.read("training-exit.txt") == "0"
+    calls = runtime.docker_calls().splitlines()
+    discard = next(i for i, c in enumerate(calls) if "--phase discard" in c)
+    assert "--label visit-run-visit-001" in calls[discard]
+    assert discard < next(i for i, c in enumerate(calls) if "-m controller prune" in c)
+
+
+def test_every_recorded_visit_is_pruned_after_its_backup(runtime):
+    runtime.cycle(0)
+    runtime.docker(
+        {
+            "-m controller next": runtime.one_visit_then_complete(),
+            "-m controller failure-policy": 'printf "1\\n1\\n"',
+            "-m controller identity": NOT_TRAINED,
+            "-m controller prune": 'echo \'{"files": 3, "bytes": 900}\'',
+        }
+    )
+    result = runtime.launch()
+    assert result.returncode == 1, result.stdout + result.stderr
+    calls = runtime.docker_calls().splitlines()
+    upload = next(i for i, c in enumerate(calls) if "--phase upload" in c and "visit-" in c)
+    assert upload < next(i for i, c in enumerate(calls) if "-m controller prune" in c)
+    assert "--phase discard" not in runtime.docker_calls()
+    assert runtime.read("retention.log") == '{"files": 3, "bytes": 900}'
 
 
 def test_a_failed_final_backup_stops_the_run_before_evaluation(runtime):
@@ -235,3 +261,6 @@ def test_accepted_training_merges_the_final_checkpoint_and_runs_the_suite(runtim
     assert "--revision abc123" in merge
     assert suite_calls.read_text().split() == [str(suite), f"{suite}/config.json"]
     assert runtime.read("last-phase.txt") == "complete"
+    calls = runtime.docker_calls().splitlines()
+    release = next(i for i, c in enumerate(calls) if "-m controller release-final-merge" in c)
+    assert release < next(i for i, c in enumerate(calls) if "--label evaluated-final" in c)

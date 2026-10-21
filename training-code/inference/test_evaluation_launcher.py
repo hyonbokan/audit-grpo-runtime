@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from testing.host import write_host_settings
+
 
 @pytest.mark.parametrize("native_benchmark", [False, True])
 def test_failed_generation_prevents_grading_and_second_arm(tmp_path, native_benchmark):
@@ -19,6 +21,7 @@ def test_failed_generation_prevents_grading_and_second_arm(tmp_path, native_benc
     source = Path(__file__).parents[1] / "launch-evaluation.sh"
     shutil.copyfile(source, code / "launch-evaluation.sh")
     shutil.copyfile(Path(__file__).parents[1] / "launch-lib.sh", code / "launch-lib.sh")
+    write_host_settings(root)
     digest = hashlib.sha256(source.read_bytes()).hexdigest()
     (run / "SOURCE_SHA256SUMS").write_text(f"{digest}  launch-evaluation.sh\n")
     (run / "config.json").write_text("{}")
@@ -81,6 +84,7 @@ def test_continuation_grades_only_the_conditional_copy_of_the_new_arm(tmp_path):
     source = Path(__file__).parents[1] / "launch-evaluation.sh"
     shutil.copyfile(source, code / source.name)
     shutil.copyfile(Path(__file__).parents[1] / "launch-lib.sh", code / "launch-lib.sh")
+    write_host_settings(root)
     digest = hashlib.sha256(source.read_bytes()).hexdigest()
     (run / "SOURCE_SHA256SUMS").write_text(f"{digest}  launch-evaluation.sh\n")
     (run / "config.json").write_text("{}")
@@ -134,6 +138,7 @@ def test_paired_native_grading_can_overlap_second_generation_and_is_joined(tmp_p
     source = Path(__file__).parents[1] / "launch-evaluation.sh"
     shutil.copyfile(source, code / source.name)
     shutil.copyfile(Path(__file__).parents[1] / "launch-lib.sh", code / "launch-lib.sh")
+    write_host_settings(root)
     (run / "SOURCE_SHA256SUMS").write_text(
         f"{hashlib.sha256(source.read_bytes()).hexdigest()}  launch-evaluation.sh\n"
     )

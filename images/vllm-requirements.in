@@ -1,0 +1,5 @@
+-r gpu-requirements.in
+vllm==0.31.0+cu129
+# vLLM's video decoder. Its default (PyPI) build links CUDA 13 libraries; no cu129 build of
+# this version exists, and decoding never runs here, so take the CPU-only build.
+torchcodec==0.17.0+cpu
