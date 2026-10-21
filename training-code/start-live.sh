@@ -15,7 +15,9 @@ JUDGE_ENV=/opt/audit-grpo-secrets/judge.env
 }
 source "$code_root/launch-lib.sh"
 
-case "$(docker inspect --format '{{.State.Status}}' "$LIVE_CONTAINER" 2>/dev/null || echo missing)" in
+# docker inspect prints an empty line before failing on a missing container.
+status=$(docker inspect --format '{{.State.Status}}' "$LIVE_CONTAINER" 2> /dev/null) || status=missing
+case "$status" in
 running) ;;
 missing)
   docker run -d --name "$LIVE_CONTAINER" --restart unless-stopped \
