@@ -13,6 +13,8 @@ FROZEN_WORKSPACE="$runtime_root/workspace"
 }
 source "$runtime_root/host.env"
 CACHE=${AUDIT_GRPO_CACHE:?host.env must set AUDIT_GRPO_CACHE to an absolute cache directory}
+# The cache mounts inside the read-only workspace, where Docker cannot create the mountpoint.
+mkdir -p "$FROZEN_WORKSPACE/cache"
 
 # Worker mounts and environment; a launcher appends its config mount.
 mounts=(-v "$code_root:/training-code:ro" -v "$runtime_root:/runtime:ro"

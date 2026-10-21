@@ -113,3 +113,9 @@ def test_host_settings_set_the_cache_and_the_restored_workspace(tmp_path):
         f"{tmp_path}/workspace",
         "audit-grpo-deps:cu129-v1",
     ]
+
+
+def test_launchers_create_the_cache_mountpoint_inside_the_read_only_workspace(tmp_path):
+    # Docker cannot create /workspace/cache inside a read-only /workspace mount.
+    assert run('printf "%s\\n" "$FROZEN_WORKSPACE"', tmp_path).returncode == 0
+    assert (tmp_path / "workspace/cache").is_dir()

@@ -67,6 +67,19 @@
       "training_cutoff": "2026-10-12T07:00:00+00:00",
       "final_deadline": "2026-10-12T12:00:00+00:00",
       "training": {"initial_step": 13, "maximum_step": 34, "maximum_groups": 21}
+    },
+    "a6000-fit-20261021": {
+      "training_cutoff": "2026-10-22T18:00:00+00:00",
+      "final_deadline": "2026-10-22T20:00:00+00:00",
+      "training": {
+        "initial_step": 13,
+        "maximum_step": 33,
+        "maximum_groups": 1,
+        "seconds_limit": 21600,
+        "offload_layers": 0,
+        "update_placement": {"gpus": [0, 1], "embedding": "gpu", "max_memory_gib": 30},
+        "tensor_parallel_size": 2
+      }
     }
   }
 }
