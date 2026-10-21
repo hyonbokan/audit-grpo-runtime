@@ -162,6 +162,11 @@ def restore_existing_embedding_offload(model: Any) -> int:
 
 
 def configure_frozen_layer_offload(model: Any, *, layers: int = 16, prefetch_depth: int = 2) -> Any:
+    """Block-swap `layers` frozen decoder layers to host memory; 0 keeps them all on GPU."""
+    if type(layers) is not int or layers < 0:
+        raise ValueError(f"offload_layers must be a non-negative integer, got {layers!r}")
+    if layers == 0:
+        return None
     from unsloth.models._utils import install_block_swap
 
     swapper = install_block_swap(
