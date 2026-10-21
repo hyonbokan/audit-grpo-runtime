@@ -26,6 +26,32 @@ environment=(-e PYTHONPATH=/training-code:/training-code/inference:/workspace/co
   -e HF_HUB_OFFLINE=1 -e HF_HUB_DISABLE_TELEMETRY=1
   -e HF_HOME=/workspace/cache/huggingface -e VLLM_USE_FLASHINFER_SAMPLER=0)
 
+# Some hosts report GPU peer access but corrupt peer copies (IOMMU translation between root
+# ports); preflight.sh checks the data. "disabled" preloads a shim that reports no peer
+# access, so CUDA stages copies through host memory. Compiled once per shim source.
+PEER_ACCESS_SETTINGS=(enabled disabled)
+case "${AUDIT_GRPO_PEER_ACCESS:-}" in
+enabled) ;;
+disabled)
+  shim_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/peer_access"
+  shim_hash=$(sha256sum "$shim_root/no_peer_access.c") || exit 2
+  shim="no-peer-access-${shim_hash:0:12}.so"
+  if [[ ! -f "$CACHE/peer-access/$shim" ]]; then
+    mkdir -p "$CACHE/peer-access"
+    docker run --rm --network none -v "$shim_root:/src:ro" \
+      -v "$CACHE/peer-access:/out" "$CPU_IMAGE" \
+      gcc -shared -fPIC -O2 -o "/out/$shim" /src/no_peer_access.c
+  fi
+  environment+=(-e "LD_PRELOAD=/workspace/cache/peer-access/$shim")
+  ;;
+*)
+  printf -v allowed '%s, ' "${PEER_ACCESS_SETTINGS[@]}"
+  echo "host.env must set AUDIT_GRPO_PEER_ACCESS to one of: ${allowed%, }" \
+    "(got '${AUDIT_GRPO_PEER_ACCESS:-}'); run preflight.sh to choose" >&2
+  exit 2
+  ;;
+esac
+
 # Seconds left before $end; fails with the deadline status once it has passed.
 remaining() {
   local left=$((end - $(date +%s)))

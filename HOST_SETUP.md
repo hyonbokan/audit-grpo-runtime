@@ -74,7 +74,8 @@ see section 7.
 ```
 
 Copy `host.env.example` to `host.env` in the runtime root (git-ignored) and set
-`AUDIT_GRPO_CACHE` to the absolute cache directory. Every launcher sources it through
+`AUDIT_GRPO_CACHE` to the absolute cache directory and `AUDIT_GRPO_PEER_ACCESS` to
+`enabled`, or to `disabled` when `preflight.sh` reports corrupt peer copies. Every launcher sources it through
 `launch-lib.sh` and exits 2 if it is missing; `run-tests.sh` also reads it to mount the
 cache read-only for the tokenizer test. The frozen workspace is always
 `<runtime root>/workspace`. The image tags `audit-grpo-deps:cu129-v1` and
@@ -220,7 +221,54 @@ rollout, update on saved samples, refresh, acceptance. Record peak memory on eve
 host RAM, wall time, and that the adapter weights changed. Inference fit does not prove
 training fit.
 
+### Replay a saved visit (no judge cost)
+
+`launch-cycle.sh --resume` reuses any phase whose receipt is complete and skips grading
+when `grading/rewards.json` exists. So a saved visit's rollout and rewards can be replayed
+through this host's update, refresh and acceptance:
+
+1. **Pick a visit whose starting checkpoint has full resume state** (`optimizer.pt`,
+   `scheduler.pt`, `rng_state.pth`). Backups keep that for one checkpoint only; earlier
+   visits cannot be replayed exactly.
+2. **Register a fit-only schedule** in `schedules.json` with this host's placement
+   (`update_placement`, `tensor_parallel_size`, `offload_layers`), an `initial_step` equal
+   to the checkpoint's step, and a near deadline. Run `provenance.py`.
+3. **Write a host source plan** when the images were rebuilt. `load_policy` checks every
+   `package_versions` pin, and a different CUDA build changes torch's local version (for
+   example `2.13.0+cu129`). Copy the run's `source-plan.json` into `results/<fit>/`, change
+   only the pins that differ, and record why in `change_record`. Never edit the original.
+4. **Copy the visit's `config.json`** to `results/<fit-run>/config.json`, then change the
+   run and schedule ids, image tags, deadline, time and judge caps, placement and
+   `source_plan`. If `prior_analysis` is missing, rebuild it from the visit's
+   `cycle-result.json` `prior_repeat`, and label it as reconstructed.
+5. **Prepare, seed, resume:**
+   ```bash
+   # prepare: the same docker command launch-cycle.sh runs (cycle_contract prepare)
+   cp -a results/<visit>/rollout results/<visit>/grading results/<fit-run>/
+   cp training-code/SOURCE_SHA256SUMS results/<fit-run>/
+   setsid nohup bash training-code/launch-cycle.sh results/<fit-run> results/<fit-run>/config.json --resume \
+     > results/<fit-run>/launcher.log 2>&1 < /dev/null &
+   ```
+   Keep monitors and notes outside the run directory: `--resume` archives every
+   `*.log`/`*.txt` file it finds there.
+6. **Read the result.** `cycle-result.json` must approve all 14 conditions. The update
+   receipt records `layer_devices`, per-GPU peak memory and `adapter_weights_changed`.
+
 ## Known problems
+
+- **Run outputs are owned by root.** The phase containers run as root, so a failed
+  attempt cannot be deleted without sudo. Move it aside (the parent directory is yours)
+  or delete it from a container: `docker run --rm -v "$PWD/results:/results" <image> rm -rf /results/<dir>`.
+- **NCCL fails in a container with the default 64 MB `/dev/shm`.** The launchers pass
+  `--shm-size 16g`; pass the same in any ad-hoc multi-GPU check.
+- **GPU peer copies can be silently corrupt.** With the IOMMU (Intel VT-d) translating
+  between PCIe root ports, the driver reports peer access (`nvidia-smi topo -p2p r` says
+  OK) while GPU-to-GPU copies of freshly computed data arrive wrong: a layer-split update
+  then fails with an out-of-range embedding index. NCCL all-reduce stayed correct. Set
+  `AUDIT_GRPO_PEER_ACCESS=disabled`: the launchers preload a shim that reports no peer
+  access, so CUDA stages copies through host memory (7.3 GB/s here, faster than the broken
+  2.7 GB/s peer path). The host fix is `iommu=pt` on the kernel command line, which needs
+  root and a reboot. `preflight.sh` checks the copied data, not the driver's claim.
 
 - **Stale tools early on PATH.** A directory such as `~/bin` copied from an older OS can
   shadow system tools with broken copies: a Python without SSL, `tmux`/`screen`/

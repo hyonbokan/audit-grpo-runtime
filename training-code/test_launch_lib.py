@@ -1,9 +1,12 @@
 """launch-lib.sh helpers: deadline accounting and the detached deadline timer."""
 
+import hashlib
 import os
 import subprocess
 import time
 from pathlib import Path
+
+import pytest
 
 from testing.host import write_host_settings
 
@@ -119,3 +122,55 @@ def test_launchers_create_the_cache_mountpoint_inside_the_read_only_workspace(tm
     # Docker cannot create /workspace/cache inside a read-only /workspace mount.
     assert run('printf "%s\\n" "$FROZEN_WORKSPACE"', tmp_path).returncode == 0
     assert (tmp_path / "workspace/cache").is_dir()
+
+
+def compiling_docker(tmp_path: Path) -> tuple[dict[str, str], Path]:
+    """A docker stand-in that records calls and writes the compiler's output file."""
+    calls = tmp_path / "docker-calls"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "docker").write_text(
+        f"""#!/bin/bash
+echo "docker $*" >> {calls}
+out=; target=
+for arg in "$@"; do
+  [[ "$arg" == *:/out ]] && out=${{arg%:/out}}
+  [[ "$prev" == -o ]] && target=${{arg#/out/}}
+  prev=$arg
+done
+[[ -n "$out" && -n "$target" ]] && touch "$out/$target"
+"""
+    )
+    (bin_dir / "docker").chmod(0o755)
+    return {"PATH": f"{bin_dir}:{os.environ['PATH']}"}, calls
+
+
+def test_disabled_peer_access_preloads_a_compiled_shim_in_every_container(tmp_path):
+    cache = write_host_settings(tmp_path, peer_access="disabled")
+    env, calls = compiling_docker(tmp_path)
+    source = LIB.with_name("peer_access") / "no_peer_access.c"
+    name = f"no-peer-access-{hashlib.sha256(source.read_bytes()).hexdigest()[:12]}.so"
+    show = 'printf "%s\\n" "${environment[@]}"'
+    first = run(show, tmp_path, **env)
+    assert first.returncode == 0, first.stderr
+    assert f"LD_PRELOAD=/workspace/cache/peer-access/{name}" in first.stdout.splitlines()
+    assert (cache / "peer-access" / name).is_file()
+    assert run(show, tmp_path, **env).returncode == 0
+    assert sum(" gcc " in line for line in calls.read_text().splitlines()) == 1
+
+
+def test_enabled_peer_access_changes_nothing(tmp_path):
+    write_host_settings(tmp_path, peer_access="enabled")
+    env, calls = compiling_docker(tmp_path)
+    result = run('printf "%s\\n" "${environment[@]}"', tmp_path, **env)
+    assert result.returncode == 0 and "LD_PRELOAD" not in result.stdout
+    assert not calls.exists()
+
+
+@pytest.mark.parametrize("setting", ["", "AUDIT_GRPO_PEER_ACCESS=off\n"])
+def test_peer_access_must_be_declared_with_an_allowed_value(tmp_path, setting):
+    cache = write_host_settings(tmp_path)
+    (tmp_path / "host.env").write_text(f"AUDIT_GRPO_CACHE={cache}\n{setting}")
+    result = run("echo sourced", tmp_path)
+    assert result.returncode == 2 and "sourced" not in result.stdout
+    assert "AUDIT_GRPO_PEER_ACCESS" in result.stderr and "enabled, disabled" in result.stderr

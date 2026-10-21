@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-SOURCE_SUFFIXES = {".py", ".sh", ".json"}
+SOURCE_SUFFIXES = {".py", ".sh", ".json", ".c"}  # .c: the peer-access shim preloaded in containers
 # Outside training-code but executed by launch-training.sh.
 EXTERNAL_SOURCES = ("../diagnostic-tools/merge_checkpoint.py",)
 IGNORED_PARTS = {"__pycache__", ".pytest_cache", ".ruff_cache", "fixtures", "testing", "private"}

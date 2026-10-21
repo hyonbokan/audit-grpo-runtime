@@ -38,6 +38,38 @@ while IFS=, read -r index name memory; do
   pass "GPU$index:$name,$memory"
 done < <(nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader 2>/dev/null)
 
+# --- Peer copies: some hosts report peer access and then corrupt the data (IOMMU between root
+# ports). Copy known tensors both ways and compare; with "disabled", copy through the shim.
+gpu_count=$(nvidia-smi --query-gpu=index --format=csv,noheader 2>/dev/null | wc -l)
+peer=$(sed -n 's/^AUDIT_GRPO_PEER_ACCESS=//p' "$runtime_root/host.env" 2>/dev/null)
+# The source must be freshly computed on the GPU: a just-created arange copied intact here
+# while kernel output did not.
+probe='import torch
+bad = 0
+for n in (16, 4096, 1 << 22):
+    for s, d in ((0, 1), (1, 0)):
+        for _ in range(3):
+            x = torch.randint(0, 1 << 30, (n,), device=f"cuda:{s}") * 3 + 1
+            bad += (x.to(f"cuda:{d}").cpu() != x.cpu()).sum().item()
+print("corrupt", bad)'
+if ((gpu_count < 2)); then
+  pass "one GPU: no peer copies"
+elif ! docker image inspect "$image" > /dev/null 2>&1; then
+  warn "peer copies not checked: image $image missing"
+else
+  preload=
+  [[ "$peer" == disabled ]] && preload='gcc -shared -fPIC -O2 -o /tmp/shim.so /src/no_peer_access.c && LD_PRELOAD=/tmp/shim.so'
+  result=$(docker run --rm --network none --gpus all -v "$code_root/peer_access:/src:ro" "$image" \
+    bash -c "$preload /opt/pilot/gpu/bin/python -c '$probe'" 2>/dev/null | sed -n 's/^corrupt //p')
+  case "$peer:${result:-error}" in
+  *:error) fail "peer-copy probe did not run" ;;
+  enabled:0 | disabled:0) pass "peer copies intact (AUDIT_GRPO_PEER_ACCESS=$peer)" ;;
+  disabled:*) fail "peer copies corrupt ($result elements) even through the no-peer-access shim" ;;
+  *) fail "peer copies corrupt ($result elements); set AUDIT_GRPO_PEER_ACCESS=disabled in host.env" ;;
+  esac
+fi
+[[ "$peer" == enabled || "$peer" == disabled ]] || fail "host.env must set AUDIT_GRPO_PEER_ACCESS to enabled or disabled"
+
 # --- Host tools; a stale directory early on PATH (seen: ~/bin from an older OS) shadows them.
 for tool in "${HOST_TOOLS[@]}"; do
   found=$(command -v "$tool") || { fail "$tool is not installed"; continue; }

@@ -103,6 +103,9 @@ holds every cycle to it and `launch-cycle.sh` exposes only those GPUs to each co
   peak memory of every GPU. The planner keeps the final norm on the first GPU and may put the
   head on the last; the update copies the final hidden states to the head's GPU and records
   each such move in `final_hidden_transfers`.
+- `AUDIT_GRPO_PEER_ACCESS` in `../host.env`: `disabled` preloads `peer_access/no_peer_access.c`
+  (compiled once into `<cache>/peer-access/`) in every container, for hosts whose GPU peer
+  copies are corrupt. `../preflight.sh` tells which a host needs.
 - `tensor_parallel_size` (default 1): vLLM tensor parallelism for rollout and refresh. With
   more than one rank, each rank reports its LoRA buffers (`adapter_shards`) and the driver
   rebuilds and verifies the full adapter (`adapter_compat.verify_tensor_parallel`).
