@@ -44,6 +44,8 @@ def test_the_five_solidity_repos_are_the_evaluation_set():
     "change",
     [
         lambda c: c["template_options"].update(reasoning_effort="high"),
+        lambda c: c.pop("native_adapter_precision"),
+        lambda c: c.update(rollout_adapter_precision="float32"),
         lambda c: c["sampling"].update(n=1),
         lambda c: c["sampling"].update(max_tokens=1000),
         lambda c: c.update(row_id="solidity2/renft"),

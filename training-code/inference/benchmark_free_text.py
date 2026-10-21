@@ -25,6 +25,8 @@ PINNED_KEYS = (
     "model_id",
     "model_revision",
     "base_precision",
+    "native_adapter_precision",
+    "rollout_adapter_precision",
     "sampler_backend",
     "rollout_image",
     "native_image",
