@@ -58,17 +58,23 @@ class VerifiedAdapterWorker(NativeSamplingWorker):
         if len(ranks) != 1:
             raise ValueError(f"LoRA layers disagree on their tensor-parallel rank: {ranks}")
         rank = ranks.pop()
+        # vLLM wraps layers the adapter never targets (e.g. the embedding); they hold no
+        # adapter weights, so their layout is irrelevant. A key mismatch here would leave a
+        # source tensor without its buffer, which verify_transfer reports as missing.
+        targeted = {
+            name: module for name, module in manager.modules.items() if name in adapter.loras
+        }
         return {
             "rank": rank,
             "adapter_id": adapter_id,
             "slot": slot,
             "packed": manager.packed_modules,
-            "modules": list(manager.modules),
+            "modules": list(targeted),
             "cpu": cpu_buffers(adapter) if rank == 0 else {},
-            "gpu": gpu_buffers(manager, slot),
+            "gpu": stacked_buffers(targeted, slot),
             "sharded_dims": {
                 f"{name}.{label}": dim
-                for name, module in manager.modules.items()
+                for name, module in targeted.items()
                 for label, dim in sharded_dims(module).items()
             },
         }
@@ -131,8 +137,12 @@ def cpu_buffers(adapter: Any) -> dict[str, list[Any]]:
 
 
 def gpu_buffers(manager: Any, slot: int) -> dict[str, list[Any]]:
+    return stacked_buffers(manager.modules, slot)
+
+
+def stacked_buffers(modules: dict[str, Any], slot: int) -> dict[str, list[Any]]:
     buffers = {}
-    for name, module in manager.modules.items():
+    for name, module in modules.items():
         for label in ("lora_a_stacked", "lora_b_stacked"):
             if hasattr(module, label):
                 value = getattr(module, label)

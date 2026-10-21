@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import msgspec
 import pytest
+import torch
 from vllm.lora.request import LoRARequest
 
 import adapter_compat
@@ -91,7 +92,7 @@ def test_unreviewed_or_overlapping_layouts_are_rejected(module):
 def test_shards_report_the_rank_every_lora_layer_agrees_on():
     manager = SimpleNamespace(
         lora_config=SimpleNamespace(fully_sharded_loras=False),
-        get_adapter=lambda _id: SimpleNamespace(id=7, loras={}),
+        get_adapter=lambda _id: SimpleNamespace(id=7, loras={"a": None, "b": None}),
         lora_index_to_id=[7],
         packed_modules={},
         modules={
@@ -107,4 +108,38 @@ def test_shards_report_the_rank_every_lora_layer_agrees_on():
     assert shard["sharded_dims"] == {"b.lora_a_stacked": -1}
     manager.modules["a"] = layer("ReplicatedLinearWithLoRA", tp_rank=0)
     with pytest.raises(ValueError, match="disagree"):
+        VerifiedAdapterWorker.adapter_shards(worker, 7)
+
+
+def shard_worker(modules, targeted):
+    stacked = {"lora_a_stacked": [torch.ones(2, 3)], "lora_b_stacked": [torch.ones(2, 3)]}
+    manager = SimpleNamespace(
+        lora_config=SimpleNamespace(fully_sharded_loras=False),
+        get_adapter=lambda _id: SimpleNamespace(
+            id=7, loras={name: SimpleNamespace(lora_a=None, lora_b=None) for name in targeted}
+        ),
+        lora_index_to_id=[7],
+        packed_modules={},
+        modules={name: layer(kind, tp_rank=0, **stacked) for name, kind in modules.items()},
+    )
+    return SimpleNamespace(
+        model_runner=SimpleNamespace(lora_manager=SimpleNamespace(_adapter_manager=manager))
+    )
+
+
+def test_layers_the_adapter_does_not_target_are_left_out_of_the_shards():
+    # vLLM wraps the embedding for LoRA even when the adapter has no embedding weights.
+    worker = shard_worker(
+        {"embed": "VocabParallelEmbeddingWithLoRA", "o_proj": "RowParallelLinearWithLoRA"},
+        targeted=["o_proj"],
+    )
+    shard = VerifiedAdapterWorker.adapter_shards(worker, 7)
+    assert shard["modules"] == ["o_proj"]
+    assert set(shard["gpu"]) == {"o_proj.lora_a_stacked", "o_proj.lora_b_stacked"}
+    assert shard["sharded_dims"] == {"o_proj.lora_a_stacked": -1}
+
+
+def test_a_targeted_layer_without_a_reviewed_layout_is_still_rejected():
+    worker = shard_worker({"embed": "VocabParallelEmbeddingWithLoRA"}, targeted=["embed"])
+    with pytest.raises(ValueError, match="Unreviewed tensor-parallel LoRA layout"):
         VerifiedAdapterWorker.adapter_shards(worker, 7)
