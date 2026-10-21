@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import shutil
 import time
 from pathlib import Path
 from typing import Any
@@ -132,7 +133,9 @@ def run_rollout(phase: str, config: dict[str, Any], out: Path) -> dict[str, Any]
                 f"checkpoint-{step}-{digest[:12]}", step, str(mapped), load_inplace=True
             )
             engine.collective_rpc("load_adapter", args=(msgspec.to_builtins(adapter),))
-            receipt["transfer"] = verify_active_adapter(engine, config, step, checkpoint, digest)
+            receipt["transfer"] = verify_active_adapter(
+                engine, config, step, checkpoint, digest, out
+            )
             write_event(
                 out,
                 "active_adapter_verified",
@@ -201,7 +204,7 @@ def run_rollout(phase: str, config: dict[str, Any], out: Path) -> dict[str, Any]
 
 
 def verify_active_adapter(
-    engine: Any, config: dict[str, Any], step: int, checkpoint: Path, digest: str
+    engine: Any, config: dict[str, Any], step: int, checkpoint: Path, digest: str, out: Path
 ) -> dict[str, Any]:
     """Every rank's active LoRA buffers equal the native adapter."""
     size = config["engine"].get("tensor_parallel_size", 1)  # vLLM's own default: one GPU.
@@ -210,8 +213,13 @@ def verify_active_adapter(
         if len(reports) != 1:
             raise ValueError("Exactly one local worker receipt required")
         return reports[0]
-    shards = engine.collective_rpc("adapter_shards", args=(step,))
-    return verify_tensor_parallel(shards, checkpoint, digest, size=size)
+    # Each rank writes its buffers here; they are deleted once verified.
+    directory = out / "adapter-shards"
+    try:
+        replies = engine.collective_rpc("adapter_shards", args=(step, str(directory)))
+        return verify_tensor_parallel(replies, checkpoint, digest, size=size)
+    finally:
+        shutil.rmtree(directory, ignore_errors=True)
 
 
 if __name__ == "__main__":

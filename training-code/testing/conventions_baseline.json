@@ -76,7 +76,7 @@
     "grpo/reward.py": 1,
     "grpo/sampling.py": 2,
     "hf_backup.py": 4,
-    "inference/adapter_compat.py": 3,
+    "inference/adapter_compat.py": 2,
     "inference/benchmark_evaluation.py": 2,
     "inference/evaluation.py": 3,
     "inference/heal_samples.py": 6,

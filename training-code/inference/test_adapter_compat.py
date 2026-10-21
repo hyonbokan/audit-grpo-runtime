@@ -89,7 +89,7 @@ def test_unreviewed_or_overlapping_layouts_are_rejected(module):
         adapter_compat.sharded_dims(module)
 
 
-def test_shards_report_the_rank_every_lora_layer_agrees_on():
+def test_shards_report_the_rank_every_lora_layer_agrees_on(tmp_path):
     manager = SimpleNamespace(
         lora_config=SimpleNamespace(fully_sharded_loras=False),
         get_adapter=lambda _id: SimpleNamespace(id=7, loras={"a": None, "b": None}),
@@ -103,12 +103,12 @@ def test_shards_report_the_rank_every_lora_layer_agrees_on():
     worker = SimpleNamespace(
         model_runner=SimpleNamespace(lora_manager=SimpleNamespace(_adapter_manager=manager))
     )
-    shard = VerifiedAdapterWorker.adapter_shards(worker, 7)
+    shard = adapter_compat.load_shard(VerifiedAdapterWorker.adapter_shards(worker, 7, tmp_path))
     assert (shard["rank"], shard["slot"], shard["cpu"]) == (1, 0, {})
     assert shard["sharded_dims"] == {"b.lora_a_stacked": -1}
     manager.modules["a"] = layer("ReplicatedLinearWithLoRA", tp_rank=0)
     with pytest.raises(ValueError, match="disagree"):
-        VerifiedAdapterWorker.adapter_shards(worker, 7)
+        VerifiedAdapterWorker.adapter_shards(worker, 7, tmp_path)
 
 
 def shard_worker(modules, targeted):
@@ -127,19 +127,44 @@ def shard_worker(modules, targeted):
     )
 
 
-def test_layers_the_adapter_does_not_target_are_left_out_of_the_shards():
+def test_layers_the_adapter_does_not_target_are_left_out_of_the_shards(tmp_path):
     # vLLM wraps the embedding for LoRA even when the adapter has no embedding weights.
     worker = shard_worker(
         {"embed": "VocabParallelEmbeddingWithLoRA", "o_proj": "RowParallelLinearWithLoRA"},
         targeted=["o_proj"],
     )
-    shard = VerifiedAdapterWorker.adapter_shards(worker, 7)
+    shard = adapter_compat.load_shard(VerifiedAdapterWorker.adapter_shards(worker, 7, tmp_path))
     assert shard["modules"] == ["o_proj"]
     assert set(shard["gpu"]) == {"o_proj.lora_a_stacked", "o_proj.lora_b_stacked"}
     assert shard["sharded_dims"] == {"o_proj.lora_a_stacked": -1}
 
 
-def test_a_targeted_layer_without_a_reviewed_layout_is_still_rejected():
+def test_a_targeted_layer_without_a_reviewed_layout_is_still_rejected(tmp_path):
     worker = shard_worker({"embed": "VocabParallelEmbeddingWithLoRA"}, targeted=["embed"])
     with pytest.raises(ValueError, match="Unreviewed tensor-parallel LoRA layout"):
-        VerifiedAdapterWorker.adapter_shards(worker, 7)
+        VerifiedAdapterWorker.adapter_shards(worker, 7, tmp_path)
+
+
+def test_a_shard_crosses_the_rpc_as_plain_data_and_its_buffers_round_trip(tmp_path):
+    # vLLM's collective RPC turns tensors into nested lists; buffers travel by file instead.
+    shard = {
+        "rank": 0,
+        "adapter_id": 7,
+        "slot": 0,
+        "packed": {"qkv": ["q", "k"]},
+        "modules": ["o"],
+        "cpu": {"o.lora_a": [torch.ones(2, 3), None]},
+        "gpu": {"o.lora_a_stacked": [torch.arange(6.0).reshape(1, 2, 3)]},
+        "sharded_dims": {"o.lora_a_stacked": -1},
+    }
+    reply = adapter_compat.save_shard(shard, tmp_path)
+    assert msgspec.json.decode(msgspec.json.encode(reply)) == reply
+    loaded = adapter_compat.load_shard(reply)
+    assert loaded["cpu"]["o.lora_a"][1] is None
+    assert torch.equal(loaded["cpu"]["o.lora_a"][0], torch.ones(2, 3))
+    assert torch.equal(loaded["gpu"]["o.lora_a_stacked"][0], torch.arange(6.0).reshape(1, 2, 3))
+    assert {key: loaded[key] for key in ("rank", "packed", "sharded_dims")} == {
+        "rank": 0,
+        "packed": {"qkv": ["q", "k"]},
+        "sharded_dims": {"o.lora_a_stacked": -1},
+    }

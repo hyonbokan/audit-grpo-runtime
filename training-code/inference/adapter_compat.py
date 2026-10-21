@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from safetensors.torch import load_file, save_file
+
 from sampler_compat import NativeSamplingWorker, require_pinned_vllm
 from transfer import merge_tensor_parallel, verify_transfer
 
@@ -47,8 +49,8 @@ class VerifiedAdapterWorker(NativeSamplingWorker):
         report.update(adapter_id=adapter_id, slot=slot, native_sha256=digest)
         return report
 
-    def adapter_shards(self, adapter_id: int) -> dict[str, Any]:
-        """This rank's active buffers and which dimension tensor parallelism split."""
+    def adapter_shards(self, adapter_id: int, directory: str) -> dict[str, Any]:
+        """Save this rank's active buffers under `directory`; return where and how they split."""
         require_pinned_vllm()
         manager = self.model_runner.lora_manager._adapter_manager
         if manager.lora_config.fully_sharded_loras:
@@ -64,7 +66,7 @@ class VerifiedAdapterWorker(NativeSamplingWorker):
         targeted = {
             name: module for name, module in manager.modules.items() if name in adapter.loras
         }
-        return {
+        shard = {
             "rank": rank,
             "adapter_id": adapter_id,
             "slot": slot,
@@ -78,13 +80,15 @@ class VerifiedAdapterWorker(NativeSamplingWorker):
                 for label, dim in sharded_dims(module).items()
             },
         }
+        return save_shard(shard, Path(directory))
 
 
 def verify_tensor_parallel(
-    shards: list[dict[str, Any]], source: Path, expected_sha: str, *, size: int
+    replies: list[dict[str, Any]], source: Path, expected_sha: str, *, size: int
 ) -> dict[str, Any]:
     """Rebuild every rank's slices into full buffers and verify them against the adapter."""
     tensors, scaling, digest = source_adapter(source, expected_sha)
+    shards = [load_shard(reply) for reply in replies]
     report = verify_transfer(tensors, merge_tensor_parallel(shards, size=size), scaling=scaling)
     if not report["cast_transfer_verified"]:
         raise ValueError(f"Active adapter transfer failed: {report['cast_failure_keys'][:5]}")
@@ -100,13 +104,42 @@ def verify_tensor_parallel(
     return report
 
 
+# --- Shard files: vLLM's collective RPC decodes tensors as nested lists, so buffers go by file
+
+
+def save_shard(shard: dict[str, Any], directory: Path) -> dict[str, Any]:
+    """Write the shard's buffers to one safetensors file; return plain data naming each slot."""
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"rank-{shard['rank']}.safetensors"
+    tensors, slots = {}, {}
+    for storage in ("cpu", "gpu"):
+        for key, values in shard[storage].items():
+            slots[f"{storage}/{key}"] = [value is not None for value in values]
+            for index, value in enumerate(values):
+                if value is not None:
+                    tensors[f"{storage}/{key}/{index}"] = value.contiguous()
+    save_file(tensors, str(path))
+    layout = {key: value for key, value in shard.items() if key not in ("cpu", "gpu")}
+    return {**layout, "buffers": str(path), "slots": slots}
+
+
+def load_shard(reply: dict[str, Any]) -> dict[str, Any]:
+    tensors = load_file(reply["buffers"])
+    shard = {key: value for key, value in reply.items() if key not in ("buffers", "slots")}
+    shard.update(cpu={}, gpu={})
+    for name, present in reply["slots"].items():
+        storage, key = name.split("/", 1)
+        shard[storage][key] = [
+            tensors[f"{name}/{index}"] if exists else None for index, exists in enumerate(present)
+        ]
+    return shard
+
+
 # --- Pinned vLLM layout
 
 
 def source_adapter(path: Path, expected_sha: str) -> tuple[dict[str, Any], float, str]:
     require_pinned_vllm()
-    from safetensors.torch import load_file
-
     digest = hashlib.sha256((path / "adapter_model.safetensors").read_bytes()).hexdigest()
     if digest != expected_sha:
         raise ValueError("Worker source adapter identity differs")
