@@ -109,7 +109,7 @@ def project(name, known, base, trained):
 
 
 def free_text_configuration(row_id="solidity/munchables", *, extra_verification=False):
-    """A reviewed base-only, high-effort, four-draw free-text benchmark config."""
+    """A reviewed base-only, xhigh-effort, four-draw free-text benchmark config."""
     scope = json.loads((ROOT / "benchmark_scope.json").read_text())
     native = json.loads((ROOT / "native_context_scope.json").read_text())
     engine = dict(scope["engine"], **native["engine_overrides"])
@@ -152,7 +152,7 @@ def free_text_configuration(row_id="solidity/munchables", *, extra_verification=
         judge_ledger="/results/ledger.json",
         grading_concurrency=4,
         overlap_grading=False,
-        template_options=dict(scope["template_options"], reasoning_effort="high"),
+        template_options=dict(scope["template_options"], reasoning_effort="xhigh"),
         sampling=dict(
             scope["sampling"],
             n=4,

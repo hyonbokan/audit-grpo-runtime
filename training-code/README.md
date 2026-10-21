@@ -153,4 +153,4 @@ the vulnerabilities a report asserts (kept in `<arm>-grading/extraction/`), and 
 one-to-one matcher grades them against the ground truth. A draw that stops inside its
 reasoning is graded on that reasoning (`answer_source: unclosed_reasoning`); a draw cut off at
 the context limit stays `truncated`. The base arm comes first; a trained arm is compared
-through its merged weights. Reasoning effort is `medium` or `high`, four draws per arm.
+through its merged weights. Reasoning effort is `medium` or `xhigh` (the pinned template has no `high`), four draws per arm.

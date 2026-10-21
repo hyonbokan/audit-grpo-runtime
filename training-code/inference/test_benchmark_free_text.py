@@ -26,7 +26,7 @@ def test_prompt_asks_for_an_audit_without_any_output_format():
         assert format_cue not in prompt
 
 
-def test_base_only_high_effort_four_draw_config_is_reviewed():
+def test_base_only_xhigh_effort_four_draw_config_is_reviewed():
     free_text.validate_config(free_text_configuration())
 
 
@@ -43,7 +43,7 @@ def test_the_five_solidity_repos_are_the_evaluation_set():
 @pytest.mark.parametrize(
     "change",
     [
-        lambda c: c["template_options"].update(reasoning_effort="xhigh"),
+        lambda c: c["template_options"].update(reasoning_effort="high"),
         lambda c: c["sampling"].update(n=1),
         lambda c: c["sampling"].update(max_tokens=1000),
         lambda c: c.update(row_id="solidity2/renft"),
