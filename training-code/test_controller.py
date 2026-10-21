@@ -585,3 +585,9 @@ def test_release_final_merge_deletes_the_evaluated_checkpoints_merge(tmp_path, m
     assert not (tmp_path / merged.name).exists()
     assert json.loads(lines[0])["bytes"] == 50 + 132
     assert (out / "merge-receipts" / f"{merged.name}.json").is_file()
+
+
+def test_final_evaluation_always_covers_the_five_solidity_repositories():
+    from panels import evaluation_projects
+
+    assert evaluation_projects() == ["munchables", "vultisig", "tigris", "backd", "phi"]

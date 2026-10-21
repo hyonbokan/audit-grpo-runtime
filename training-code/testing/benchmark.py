@@ -106,3 +106,60 @@ def project(name, known, base, trained):
             "arms": [arm("base", base), arm("checkpoint-2", trained)],
         },
     }
+
+
+def free_text_configuration(row_id="solidity/munchables", *, extra_verification=False):
+    """A reviewed base-only, high-effort, four-draw free-text benchmark config."""
+    scope = json.loads((ROOT / "benchmark_scope.json").read_text())
+    native = json.loads((ROOT / "native_context_scope.json").read_text())
+    engine = dict(scope["engine"], **native["engine_overrides"])
+    for key in native["removed_engine_options"]:
+        engine.pop(key)
+    engine.update(
+        max_model_len=native["max_model_len"],
+        max_num_seqs=scope["free_text"]["max_num_seqs"],
+        tensor_parallel_size=2,
+    )
+    prompt_tokens = 30000
+    config = {
+        key: scope[key]
+        for key in (
+            "model_id",
+            "model_revision",
+            "base_precision",
+            "sampler_backend",
+            "rollout_image",
+            "native_image",
+            "evaluation_kind",
+            "benchmark_judge",
+        )
+    }
+    config.update(
+        benchmark_suite="solidity_free_text",
+        output_format="free_text",
+        row_id=row_id,
+        extra_verification=extra_verification,
+        run_id="test",
+        assets="/assets",
+        manifest_sha256="a" * 64,
+        model_path="/model",
+        prompt_token_count=prompt_tokens,
+        absolute_deadline="2026-10-23T00:00:00+00:00",
+        seconds_limit=43200,
+        judge_seconds_limit=7200,
+        judge_operation_cap_usd=40,
+        judge_cap_usd=200,
+        judge_ledger="/results/ledger.json",
+        grading_concurrency=4,
+        overlap_grading=False,
+        template_options=dict(scope["template_options"], reasoning_effort="high"),
+        sampling=dict(
+            scope["sampling"],
+            n=4,
+            max_tokens=native["max_model_len"] - prompt_tokens,
+        ),
+        engine=engine,
+        cases=[{"label": "base", "initial_step": 0}],
+        generation_order=["base"],
+    )
+    return config

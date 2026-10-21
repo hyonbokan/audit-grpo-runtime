@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 from pathlib import Path
 
+from benchmark_free_text import evaluation_row_ids
 from progress import aggregate_panel, select_checkpoint
 from runtime_io import new_result_dir, read_json, save_json, seconds_until, sha256_file, utc_now
 from schedules import scope
@@ -154,6 +155,11 @@ def record_validation(config: dict, out: Path) -> None:
 # --- Final evaluation
 
 
+def evaluation_projects() -> list[str]:
+    """Every final evaluation runs the whole benchmark: the five Solidity repositories."""
+    return [row_id.split("/", 1)[1] for row_id in evaluation_row_ids()]
+
+
 def evaluation_configs(config: dict, out: Path) -> list[str]:
     """Freeze the trained checkpoint, then write one benchmark config per held-out project."""
     from transformers import AutoTokenizer
@@ -174,7 +180,7 @@ def evaluation_configs(config: dict, out: Path) -> list[str]:
     )
     tokenizer = AutoTokenizer.from_pretrained(config["cycle"]["model_path"], local_files_only=True)
     projects = []
-    for name in config["evaluation_projects"]:
+    for name in evaluation_projects():
         template = read_json(
             Path(config["runtime_host"]) / reviewed["evaluation_template"].format(project=name)
         )

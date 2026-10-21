@@ -8,6 +8,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from benchmark_free_text import audit_prompt
+
 
 def grading_input_hashes(samples: bytes, truth: bytes, template: bytes) -> dict[str, str]:
     """Bind grades to the exact files read, including any explicit normalization."""
@@ -52,6 +54,8 @@ def load_assets(root: Path, lane: str, name: str, *, output_format: str = "json"
     prompt = template.replace("{ contracts }", flat, 1)
     if output_format == "markdown":
         prompt = markdown_prompt(flat)
+    elif output_format == "free_text":
+        prompt = audit_prompt(flat)
     elif output_format != "json":
         raise ValueError("Unknown benchmark output format")
     truth_data = confined_path(root, repo["ground_truth_path"]).read_bytes()

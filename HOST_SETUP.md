@@ -50,7 +50,10 @@ new tag must be changed there.
 Copy `.env.example` to `.env`, fill it, `chmod 600`. Never print it; load it with
 `set -a; . ./.env; set +a` in the command that needs it.
 
-**Done when** `preflight.sh` passes the `.env` lines.
+Start the judge container, which holds these credentials:
+`bash training-code/start-live.sh`.
+
+**Done when** `preflight.sh` passes the `.env` lines and `docker ps` lists `audit-grpo-live`.
 
 ## 3. Restore from the private backup
 

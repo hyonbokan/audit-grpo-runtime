@@ -8,12 +8,13 @@ import hashlib
 import json
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from llm_router.types import ThinkingEffort
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
 from scripts.finetuning.tools.pilot_transport import CURRENT_JOB, RecordedJudgeRouter
 
+import benchmark_free_text as free_text
 from benchmark_contract import grading_input_hashes, parse_completion
 from benchmark_evaluation import validate_benchmark_config
 from benchmark_matching import evaluate_findings, judge_vote
@@ -30,6 +31,19 @@ class MatchingVerdict(BaseModel):
     severity_from_junior_auditor: StrictStr
     severity_from_truth: StrictStr
     index_of_finding_from_junior_auditor: float = Field(allow_inf_nan=False)
+
+
+class ExtractedFinding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    issue: StrictStr
+    description: StrictStr
+    severity: Literal[free_text.SEVERITIES]
+    contracts: list[StrictStr]
+
+
+class ExtractedReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    findings: list[ExtractedFinding]
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -75,9 +89,25 @@ async def grade_benchmark(
     try:
         judge = BenchmarkJudge(router, out, budget, replay_path=replay_path)
         semaphore = asyncio.Semaphore(config.get("grading_concurrency", 1))
+        # Older configs predate output_format; their answers are native JSON.
+        free = config.get("output_format", "json") == "free_text"
+        if free:
+            (out / "extraction").mkdir()
+            extractor = BenchmarkJudge(
+                router,
+                out / "extraction",
+                budget,
+                ExtractedReport,
+                replay_path=replay_path / "extraction" if replay_path else None,
+            )
 
         async def grade_draw(index, sample):
             async with semaphore:
+                if free:
+                    result = await free_text.grade_draw(
+                        sample, truth, template, extractor, lambda prompt: judge_vote(prompt, judge)
+                    )
+                    return record_draw(index, sample, result)
                 try:
                     findings = parse_completion(
                         sample["final_text"],
@@ -96,17 +126,20 @@ async def grade_benchmark(
                     result = await evaluate_findings(
                         findings, truth, template, lambda prompt: judge_vote(prompt, judge)
                     )
-                result.update(
-                    draw_index=index,
-                    completion_tokens=len(sample["completion_ids"]),
-                    finish_reason=sample["finish_reason"],
-                )
-                write_new(out / f"draw-{index}.json", result)
-                print(
-                    f"draw {index}: {result['status']}; exact coverage={result['exact_coverage']}",
-                    flush=True,
-                )
-                return result
+                return record_draw(index, sample, result)
+
+        def record_draw(index, sample, result):
+            result.update(
+                draw_index=index,
+                completion_tokens=len(sample["completion_ids"]),
+                finish_reason=sample["finish_reason"],
+            )
+            write_new(out / f"draw-{index}.json", result)
+            print(
+                f"draw {index}: {result['status']}; exact coverage={result['exact_coverage']}",
+                flush=True,
+            )
+            return result
 
         # Let every draw finish and save its draw-N.json before reporting a failure,
         # so a rerun with --replay reuses all completed paid responses.
@@ -163,7 +196,7 @@ class BenchmarkJudge:
                 if (
                     request["model"] != "gpt-6-luna"
                     or request["api_effort"] != "xhigh"
-                    or request["schema"] != MatchingVerdict.model_json_schema()
+                    or request["schema"] != response_model.model_json_schema()
                 ):
                     raise ValueError("Replay response contract differs")
                 messages = [item for item in raw["output"] if item["type"] == "message"]
@@ -173,7 +206,7 @@ class BenchmarkJudge:
                     for item in message["content"]
                     if item["type"] == "output_text"
                 ]
-                verdict = MatchingVerdict.model_validate_json("".join(texts)).model_dump()
+                verdict = response_model.model_validate_json("".join(texts)).model_dump()
                 self.replay.setdefault(request["prompt"], []).append((folder, verdict))
 
     async def __call__(self, prompt: str) -> dict[str, Any]:

@@ -244,3 +244,11 @@ def test_unsectioned_findings_before_markdown_sections_are_not_silently_dropped(
     )
     with pytest.raises(ValueError):
         parse_completion(report, "stop", output_format="markdown")
+
+
+def test_free_text_policy_prompt_carries_complete_sources_and_no_truth(tmp_path):
+    from benchmark_contract import load_assets
+
+    assets = load_assets(bundle(tmp_path), "solidity", "tiny", output_format="free_text")
+    assert "contract A" in assets["prompt"] and "contract B" in assets["prompt"]
+    assert "PRIVATE_SENTINEL" not in assets["prompt"] and "JSON" not in assets["prompt"]

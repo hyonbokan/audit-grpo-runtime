@@ -412,3 +412,81 @@ def test_finish_requires_grading_receipts_for_exact_inputs(tmp_path, corruption,
             assert result["strict_json_validity"] == {"base": 0, "checkpoint-2": 0}
             assert result["panel"] == config["content_panel"]
             assert "vultisig" in result["scope"]
+
+
+def test_free_text_base_arm_finishes_with_per_arm_means_and_no_invented_gain(tmp_path):
+    from benchmark_evaluation import finish_benchmark, validate_benchmark_config
+    from testing.benchmark import free_text_configuration
+
+    config = free_text_configuration()
+    validate_benchmark_config(config)
+    (tmp_path / "prepared.json").write_text(json.dumps(config))
+    request = {
+        "prompt_ids": [1, 2],
+        "prompt_ids_sha256": hashlib.sha256(json.dumps([1, 2]).encode()).hexdigest(),
+        "model": {"precision": "bf16"},
+        "max_model_len": 262144,
+        "full_completion_ceiling": config["sampling"]["max_tokens"],
+    }
+    (tmp_path / "request.json").write_text(json.dumps(request))
+    truth, template = b'[{"issue":"known"}]', b"judge template"
+    (tmp_path / "private-truth.json").write_bytes(truth)
+    (tmp_path / "judge-prompt.txt").write_bytes(template)
+    (tmp_path / "base-config.json").write_text(
+        json.dumps(dict(config, **config["cases"][0], request=str(tmp_path / "request.json")))
+    )
+    version = f"base:{config['model_revision']}"
+    samples = json.dumps(
+        [{"prompt_ids": [1, 2], "completion_ids": [3, 4], "weight_version": version}] * 4
+    ).encode()
+    (tmp_path / "base").mkdir()
+    (tmp_path / "base/samples.json").write_bytes(samples)
+    (tmp_path / "base-grading").mkdir()
+    draws = [
+        {
+            "status": "graded",
+            "exact_coverage": c,
+            "coverage_including_partial": c,
+            "completion_tokens": 2,
+        }
+        for c in (0.0, 0.5, 0.5, 1.0)
+    ]
+    (tmp_path / "base-grading/metrics.json").write_text(
+        json.dumps(
+            {
+                "draws": draws,
+                "judge": config["benchmark_judge"],
+                "input_sha256": {
+                    "samples": hashlib.sha256(samples).hexdigest(),
+                    "private_truth": hashlib.sha256(truth).hexdigest(),
+                    "judge_prompt": hashlib.sha256(template).hexdigest(),
+                },
+            }
+        )
+    )
+    finish_benchmark(config, tmp_path)
+    result = json.loads((tmp_path / "comparison.json").read_text())
+    assert result["status"] == "complete" and result["output_format"] == "free_text"
+    assert result["arms"]["base"]["mean_exact_coverage"] == 0.5
+    assert result["quality_gain_established"] is False and "deltas" not in result
+
+
+def test_only_trained_arms_have_checkpoints_to_verify(tmp_path):
+    from benchmark_evaluation import verify_checkpoints
+
+    verify_checkpoints([{"label": "base", "initial_step": 0}])
+    checkpoint = tmp_path / "checkpoint-4"
+    checkpoint.mkdir()
+    (checkpoint / "adapter_model.safetensors").write_bytes(b"weights")
+    (checkpoint / "trainer_state.json").write_text('{"global_step": 4}')
+    arm = {
+        "label": "checkpoint-4",
+        "initial_step": 4,
+        "checkpoint": str(checkpoint),
+        "initial_adapter_sha256": hashlib.sha256(b"weights").hexdigest(),
+    }
+    verify_checkpoints([{"label": "base", "initial_step": 0}, arm])
+    with pytest.raises(ValueError, match="identity"):
+        verify_checkpoints([dict(arm, initial_adapter_sha256="0" * 64)])
+    with pytest.raises(ValueError, match="trainer state"):
+        verify_checkpoints([dict(arm, initial_step=5)])

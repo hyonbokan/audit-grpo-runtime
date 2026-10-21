@@ -132,6 +132,9 @@ Nothing has to be cleaned by hand during a run; the policy is `storage` in `sche
   backoff, `judge_call_retries` times (0-5, default 3). Budget exhaustion stops grading.
 - Paid responses are cached per visit in `judge-cache/`, so a retried or resumed group
   pays only for calls that never completed.
+- The live container (`audit-grpo-live`) holds the credentials and the network access;
+  start or reuse it with `bash training-code/start-live.sh`. Every other container runs
+  without network.
 - `judge_env_file` names a dotenv file inside the live container. It must set
   `LITELLM_GATEWAY_URL` and `LITELLM_GATEWAY_API_KEY`; grading stops if either is missing.
   Keep credentials out of source, configs and logs.
@@ -143,3 +146,11 @@ Nothing has to be cleaned by hand during a run; the policy is `storage` in `sche
 `native_solidity_benchmark` → `inference/benchmark_evaluation.py`, otherwise
 `inference/evaluation.py`. Invalid or truncated answers stay unknown, never zero.
 Healed (parser-recovered) results are a separate protocol and are never pooled with strict ones.
+
+The current benchmark is the free-text suite (`benchmark_suite: solidity_free_text`,
+`inference/benchmark_free_text.py`): the prompt sets no output format; one judge call extracts
+the vulnerabilities a report asserts (kept in `<arm>-grading/extraction/`), and the reviewed
+one-to-one matcher grades them against the ground truth. A draw that stops inside its
+reasoning is graded on that reasoning (`answer_source: unclosed_reasoning`); a draw cut off at
+the context limit stays `truncated`. The base arm comes first; a trained arm is compared
+through its merged weights. Reasoning effort is `medium` or `high`, four draws per arm.

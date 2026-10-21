@@ -371,3 +371,80 @@ def test_judge_accepts_another_response_schema_for_the_same_paid_boundary(tmp_pa
     assert json.loads((tmp_path / "call-0001/request.json").read_text())["schema"] == (
         Other.model_json_schema()
     )
+
+
+def test_free_text_draws_are_extracted_once_then_matched_with_separate_records(
+    tmp_path, monkeypatch
+):
+    from openai.types.responses import Response
+
+    from benchmark_judge import (
+        ExtractedReport,
+        MatchingVerdict,
+        RecordedJudgeRouter,
+        grade_benchmark,
+    )
+    from testing.benchmark import free_text_configuration
+
+    class RouterBoundary:
+        async def complete(self, model, messages, *, response_model, **settings):
+            raw = Response.model_construct(
+                id="test",
+                model=model,
+                status="completed",
+                usage={"input_tokens": 100, "output_tokens": 20},
+            )
+            if response_model is ExtractedReport:
+                assert "free-text audit of draw" in messages[0]["content"]
+                content = ExtractedReport(
+                    findings=[
+                        {
+                            "issue": "Reentrancy",
+                            "description": "drains funds",
+                            "severity": "N/A",
+                            "contracts": [],
+                        }
+                    ]
+                )
+            else:
+                content = MatchingVerdict(
+                    is_match=True,
+                    is_partial_match=False,
+                    explanation="same",
+                    severity_from_junior_auditor="N/A",
+                    severity_from_truth="High",
+                    index_of_finding_from_junior_auditor=0,
+                )
+            return SimpleNamespace(content=content, raw_response=raw)
+
+        async def close(self):
+            pass
+
+    async def create(*args, **kwargs):
+        return RouterBoundary()
+
+    monkeypatch.setattr(RecordedJudgeRouter, "create", create)
+    config = free_text_configuration()
+    config.update(judge_ledger=str(tmp_path / "ledger.json"))
+    (tmp_path / "config.json").write_text(json.dumps(config))
+    finding = {"issue": "GT", "description": "body", "contracts": ["A.sol"], "severity": "High"}
+    (tmp_path / "private-truth.json").write_text(json.dumps([finding]))
+    (tmp_path / "judge-prompt.txt").write_text("{ junior_findings } { truth_finding }")
+    samples = [
+        {
+            "final_text": f"free-text audit of draw {i}",
+            "raw_text": "</think>",
+            "finish_reason": "stop",
+            "completion_ids": [3],
+        }
+        for i in range(4)
+    ]
+    (tmp_path / "samples.json").write_text(json.dumps(samples))
+    asyncio.run(
+        grade_benchmark(tmp_path / "config.json", tmp_path / "samples.json", tmp_path / "g")
+    )
+    metrics = json.loads((tmp_path / "g/metrics.json").read_text())
+    assert [draw["exact_coverage"] for draw in metrics["draws"]] == [1.0] * 4
+    assert [draw["answer_source"] for draw in metrics["draws"]] == ["final_answer"] * 4
+    assert len(list((tmp_path / "g/extraction").glob("call-*"))) == 4
+    assert len(list((tmp_path / "g").glob("call-*"))) == 8  # two agreeing match votes per draw

@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import benchmark_free_text as free_text
 from benchmark_contract import grading_input_hashes, load_assets, parse_completion
 from generation import validate_request
 from grpo.samples import write_new
@@ -45,9 +46,13 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def validate_benchmark_config(config: dict[str, Any]) -> None:
+    if config.get("benchmark_suite") == free_text.SUITE:
+        free_text.validate_config(config)
+        return
     scope = json.loads(Path(__file__).parents[1].joinpath("benchmark_scope.json").read_text())
     limits = scope.pop("continuation")
     suite = scope.pop("solidity1")
+    scope.pop("free_text")
     markdown = config.get("benchmark_suite") == "solidity1_markdown"
     profile = config.get("evaluation_profile")
     if profile not in (None, "full_native_context"):
@@ -217,7 +222,9 @@ def validate_benchmark_config(config: dict[str, Any]) -> None:
 
 def completion_allowance(config: dict[str, Any], prompt_token_count: int) -> int:
     allowance = config["sampling"]["max_tokens"]
-    if config.get("evaluation_profile") == "full_native_context":
+    if config.get("evaluation_profile") == "full_native_context" or (
+        config.get("benchmark_suite") == free_text.SUITE
+    ):
         if prompt_token_count != config.get("prompt_token_count"):
             raise ValueError("Measured prompt token count changed")
         if allowance != config["engine"]["max_model_len"] - prompt_token_count:
@@ -242,22 +249,12 @@ def prepare_benchmark(config: dict[str, Any], out: Path) -> None:
         raise ValueError("Benchmark manifest identity differs")
     lane, name = config["row_id"].split("/", 1)
     assets = load_assets(root, lane, name, output_format=config.get("output_format", "json"))
-    if config.get("evaluation_profile") == "full_native_context" and not assets["repo"].get(
-        "require_complete_gt_scope"
-    ):
+    full_context = config.get("evaluation_profile") == "full_native_context" or (
+        config.get("benchmark_suite") == free_text.SUITE
+    )
+    if full_context and not assets["repo"].get("require_complete_gt_scope"):
         raise ValueError("Full native context requires reviewed complete GT source scope")
-    case = config["cases"][-1]
-    checkpoint = Path(case["checkpoint"])
-    if (
-        hashlib.sha256((checkpoint / "adapter_model.safetensors").read_bytes()).hexdigest()
-        != case["initial_adapter_sha256"]
-    ):
-        raise ValueError("Accepted checkpoint identity differs")
-    if (
-        json.loads((checkpoint / "trainer_state.json").read_text())["global_step"]
-        != (case["initial_step"])
-    ):
-        raise ValueError("Checkpoint trainer state differs")
+    verify_checkpoints(config["cases"])
     from transformers import AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained(config["model_path"], local_files_only=True)
@@ -300,6 +297,24 @@ def prepare_benchmark(config: dict[str, Any], out: Path) -> None:
             dict(config, **case, request=str(out / "request.json")),
         )
     write_new(out / "prepared.json", config)
+
+
+def verify_checkpoints(cases: list[dict[str, Any]]) -> None:
+    """Every trained arm's adapter and step are the declared ones; the base arm has none."""
+    for case in cases:
+        if "checkpoint" not in case:
+            continue
+        checkpoint = Path(case["checkpoint"])
+        if (
+            hashlib.sha256((checkpoint / "adapter_model.safetensors").read_bytes()).hexdigest()
+            != case["initial_adapter_sha256"]
+        ):
+            raise ValueError("Accepted checkpoint identity differs")
+        if (
+            json.loads((checkpoint / "trainer_state.json").read_text())["global_step"]
+            != (case["initial_step"])
+        ):
+            raise ValueError("Checkpoint trainer state differs")
 
 
 def summarize_benchmark(
@@ -382,7 +397,14 @@ def finish_benchmark(config: dict[str, Any], out: Path) -> None:
             completion_tokens=sum(len(row["completion_ids"]) for row in samples),
         )
         arms.append(arm)
-    if config.get("repeat_evaluation") and len(arms) == 1:
+    if config.get("benchmark_suite") == free_text.SUITE:
+        result = {
+            **free_text.summarize(arms),
+            "scope": f"{config['row_id']}; free text, {config['sampling']['n']} draws per arm",
+            "output_format": "free_text",
+            "draws": {arm["label"]: arm["draws"] for arm in arms},
+        }
+    elif config.get("repeat_evaluation") and len(arms) == 1:
         result = {
             "status": "single_arm_completed"
             if all(draw["status"] == "graded" for draw in arms[0]["draws"])

@@ -63,6 +63,16 @@
     "judge_operation_cap_usd": 150,
     "content_panel": "conditional_content_after_sole_outer_json_fence_removed"
   },
+  "free_text": {
+    "benchmark_suite": "solidity_free_text",
+    "extra_verification_row_ids": ["solidity2/secondswap", "solidity2/renft", "solidity2/abracadabra"],
+    "reasoning_efforts": ["medium", "high"],
+    "sample_count": 4,
+    "max_num_seqs": 4,
+    "seconds_limit": 86400,
+    "judge_seconds_limit": 14400,
+    "judge_operation_cap_usd": 60
+  },
   "template_options": {
     "tokenize": true,
     "add_generation_prompt": true,
