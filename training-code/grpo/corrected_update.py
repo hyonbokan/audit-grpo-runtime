@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from grpo.corrected_loss import corrected_loss, support_logprobs
-from grpo.placement import layer_devices
+from grpo.placement import hidden_on_head_device, layer_devices
 
 
 def join_update_group(
@@ -68,7 +68,7 @@ def apply_update(
     total_tokens = sum(len(sample["completion_ids"]) for sample in group)
     mean_reward = sum(rewards) / 4
     optimizer.zero_grad(set_to_none=True)
-    loss_sum, ratios, old_logprobs = 0.0, [], []
+    loss_sum, ratios, old_logprobs, transfers = 0.0, [], [], set()
     for sample in group:
         ids = sample["prompt_ids"] + sample["completion_ids"][:-1]
         # Native embedding/offload hooks retain placement; the decoder input is CUDA.
@@ -82,6 +82,9 @@ def apply_update(
             return_dict=True,
         )
         hidden = output.last_hidden_state[0, len(sample["prompt_ids"]) - 1 :]
+        hidden, transfer = hidden_on_head_device(hidden, head.weight)
+        if transfer is not None:
+            transfers.add(transfer)
         current = support_logprobs(
             hidden,
             head.weight,
@@ -126,6 +129,7 @@ def apply_update(
         "loss": loss_sum,
         "gradient_norm": norm.item(),
         "correction_tokens": total_tokens,
+        "final_hidden_transfers": sorted(transfers),
         "correction_clip_fraction": clip_fraction,
         "correction_ess_fraction": ess_fraction,
         "correction_min": ratio.min().item(),

@@ -60,6 +60,15 @@ def rollout_gpus(engine: dict[str, Any]) -> list[int]:
     return list(range(size))
 
 
+def hidden_on_head_device(hidden: Any, head_weight: Any) -> tuple[Any, str | None]:
+    """The decoder's final hidden states on the output head's device, and the move made."""
+    # Unsloth's planner keeps the final norm with the embedding (first GPU) and may put the
+    # head on the last; one explicit, recorded copy bridges them.
+    if hidden.device == head_weight.device:
+        return hidden, None
+    return hidden.to(head_weight.device), f"{hidden.device}->{head_weight.device}"
+
+
 def layer_devices(layers: list[Any]) -> dict[str, int]:
     """Decoder layers per device; block-swapped layers report their host copy."""
     counts: dict[str, int] = {}

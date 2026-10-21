@@ -79,3 +79,18 @@ def test_layer_devices_counts_each_layer_once_by_where_its_weights_live():
 def test_a_layer_whose_weights_span_devices_is_rejected():
     with pytest.raises(ValueError, match="layer 1"):
         placement.layer_devices([Layer("cuda:0"), Layer("cuda:0", "cuda:1")])
+
+
+def test_final_hidden_states_move_to_the_head_device_and_the_move_is_reported():
+    torch = pytest.importorskip("torch")
+    hidden = torch.ones(3, 4, requires_grad=True)
+    moved, transfer = placement.hidden_on_head_device(hidden, torch.empty(5, 4, device="meta"))
+    assert moved.device.type == "meta" and moved.shape == (3, 4)
+    assert transfer == "cpu->meta"
+
+
+def test_final_hidden_states_already_on_the_head_device_are_returned_unchanged():
+    torch = pytest.importorskip("torch")
+    hidden = torch.ones(3, 4, requires_grad=True)
+    same, transfer = placement.hidden_on_head_device(hidden, torch.zeros(5, 4))
+    assert same is hidden and transfer is None

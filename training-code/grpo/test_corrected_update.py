@@ -66,6 +66,7 @@ def test_four_draw_correction_changes_model_weights_with_one_optimizer_update():
     assert result["optimizer_updates"] == 1
     assert result["gradient_norm"] > 0
     assert result["correction_tokens"] == 8
+    assert result["final_hidden_transfers"] == []  # one device: nothing moved
     assert math.isfinite(result["loss"])
     assert any(not torch.equal(a, b) for a, b in zip(before, parameters, strict=True))
     assert {int(state["step"].item()) for state in optimizer.state.values()} == {1}

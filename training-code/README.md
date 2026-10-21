@@ -99,8 +99,10 @@ holds every cycle to it and `launch-cycle.sh` exposes only those GPUs to each co
   split such as `{"gpus": [0, 1], "embedding": "gpu", "max_memory_gib": 44}` placed by
   Unsloth's planner (`grpo/placement.py`). A split keeps the embedding on GPU because Unsloth
   declines embedding offload for a dispatched model. `offload_layers` still streams that many
-  frozen layers from host RAM. The update receipt records `layer_devices` and the peak memory
-  of every GPU.
+  frozen layers from host RAM (0: none). The update receipt records `layer_devices` and the
+  peak memory of every GPU. The planner keeps the final norm on the first GPU and may put the
+  head on the last; the update copies the final hidden states to the head's GPU and records
+  each such move in `final_hidden_transfers`.
 - `tensor_parallel_size` (default 1): vLLM tensor parallelism for rollout and refresh. With
   more than one rank, each rank reports its LoRA buffers (`adapter_shards`) and the driver
   rebuilds and verifies the full adapter (`adapter_compat.verify_tensor_parallel`).
