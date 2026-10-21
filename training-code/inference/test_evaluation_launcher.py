@@ -45,9 +45,6 @@ stop) exit 0;;
 *) echo 'unexpected phase' >&2; exit 99;;
 esac
 """,
-        "sudo": '#!/bin/bash\nexec "$@"\n',
-        "systemd-run": "#!/bin/bash\nexit 0\n",
-        "systemctl": "#!/bin/bash\nexit 0\n",
         "nvidia-smi": "#!/bin/bash\nexit 0\n",
     }
     if native_benchmark:
@@ -99,9 +96,6 @@ if [[ "$1" == run && "$*" == *'evaluation.py settings'* ]]; then
 fi
 exit 0
 """,
-        "sudo": '#!/bin/bash\nexec "$@"\n',
-        "systemd-run": "#!/bin/bash\nexit 0\n",
-        "systemctl": "#!/bin/bash\nexit 0\n",
         "nvidia-smi": "#!/bin/bash\nexit 0\n",
     }
     for name, contents in scripts.items():
@@ -160,9 +154,6 @@ if [[ "$1" == exec && "$*" == *'benchmark_judge.py'* && "$*" == *'base/samples.j
 fi
 exit 0
 """,
-        "sudo": '#!/bin/bash\nexec "$@"\n',
-        "systemd-run": "#!/bin/bash\nexit 0\n",
-        "systemctl": "#!/bin/bash\nexit 0\n",
         "nvidia-smi": "#!/bin/bash\nexit 0\n",
     }
     for name, contents in scripts.items():

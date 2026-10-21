@@ -1,7 +1,8 @@
-"""launch-lib.sh helpers: deadline accounting and the transient deadline timer."""
+"""launch-lib.sh helpers: deadline accounting and the detached deadline timer."""
 
 import os
 import subprocess
+import time
 from pathlib import Path
 
 from testing.host import write_host_settings
@@ -28,28 +29,70 @@ def test_remaining_reports_seconds_left_and_fails_with_deadline_status_after(tmp
     assert passed.returncode == 124 and passed.stdout == ""
 
 
-def test_deadline_timer_replaces_a_stale_unit_and_stops_the_named_containers(tmp_path):
-    calls = tmp_path / "calls"
+def fake_docker(tmp_path: Path) -> tuple[dict[str, str], Path]:
+    calls = tmp_path / "docker-calls"
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    for name in ("sudo", "systemctl", "systemd-run"):
-        path = bin_dir / name
-        body = 'exec "$@"' if name == "sudo" else f'echo "{name} $*" >> {calls}'
-        path.write_text(f"#!/bin/bash\n{body}\n")
-        path.chmod(0o755)
-    result = run(
-        "start_deadline_timer unit 90 c-rollout c-update",
-        tmp_path,
-        PATH=f"{bin_dir}:{os.environ['PATH']}",
-    )
-    assert result.returncode == 0, result.stderr
-    stop = "/usr/bin/docker stop -t 0 c-rollout c-update"
-    assert calls.read_text().splitlines() == [
-        "systemctl stop unit.timer",
-        "systemctl reset-failed unit.timer unit.service",
-        f"systemd-run --quiet --unit unit --on-active=90s {stop}",
-        "systemctl is-active --quiet unit.timer",
-    ]
+    (bin_dir / "docker").write_text(f'#!/bin/bash\necho "docker $*" >> {calls}\n')
+    (bin_dir / "docker").chmod(0o755)
+    return {"PATH": f"{bin_dir}:{os.environ['PATH']}"}, calls
+
+
+def wait_for(path: Path, seconds: float = 10) -> str:
+    stop = time.monotonic() + seconds
+    while time.monotonic() < stop:
+        if path.exists() and path.read_text():
+            return path.read_text()
+        time.sleep(0.1)
+    return ""
+
+
+def running(pid: int) -> bool:
+    # In a container without an init process, a killed orphan stays a zombie (state Z).
+    try:
+        state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+    except FileNotFoundError:
+        return False
+    return state not in ("Z", "X")
+
+
+def test_deadline_timer_stops_the_named_containers_after_its_launcher_has_exited(tmp_path):
+    env, calls = fake_docker(tmp_path)
+    started = run("start_deadline_timer unit 1 c-rollout c-update", tmp_path, **env)
+    assert started.returncode == 0, started.stderr
+    assert wait_for(calls).splitlines() == ["docker stop -t 0 c-rollout c-update"]
+
+
+def test_stopped_deadline_timer_never_fires_and_leaves_no_process(tmp_path):
+    env, calls = fake_docker(tmp_path)
+    run("start_deadline_timer unit 2 c-rollout", tmp_path, **env)
+    record = tmp_path / "results/deadline-timers/unit.pid"
+    pid = int(record.read_text().split()[0])
+    assert run("stop_deadline_timer unit", tmp_path, **env).returncode == 0
+    time.sleep(3)
+    assert not calls.exists() and not record.exists()
+    assert not running(pid)
+
+
+def test_restarting_a_deadline_timer_replaces_the_previous_one(tmp_path):
+    env, calls = fake_docker(tmp_path)
+    run("start_deadline_timer unit 1 c-old", tmp_path, **env)
+    run("start_deadline_timer unit 1 c-new", tmp_path, **env)
+    assert wait_for(calls)
+    time.sleep(2)  # the replaced timer would have fired by now
+    assert calls.read_text().splitlines() == ["docker stop -t 0 c-new"]
+
+
+def test_stopping_a_stale_timer_record_never_kills_an_unrelated_process(tmp_path):
+    other = subprocess.Popen(["sleep", "30"], start_new_session=True)
+    try:
+        record = tmp_path / "results/deadline-timers/unit.pid"
+        record.parent.mkdir(parents=True)
+        record.write_text(f"{other.pid} 0 c-rollout\n")
+        assert run("stop_deadline_timer unit", tmp_path).returncode == 0
+        assert other.poll() is None and not record.exists()
+    finally:
+        other.kill()
 
 
 def test_launchers_refuse_to_start_without_this_hosts_settings(tmp_path):

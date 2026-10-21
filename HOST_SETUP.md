@@ -8,13 +8,47 @@ Host-specific values (backup repository, paths, progress on the current host) li
 Every step ends with a **Done when** check. Do not move on until it passes. Nothing here
 starts GPU work or paid judge calls; those need the user's approval (see AGENTS.md).
 
+## Fast path
+
+1. `bash preflight.sh`. It checks step 0 and the state of steps 1–5, changes nothing,
+   and names the step that fixes each FAIL. Rerun it after every step.
+2. Fix the host-level FAILs first. They are the ones that cost hours when found late:
+   driver too old, a broken `python3` early on PATH, docker without the nvidia runtime.
+3. Steps 1–3: layout, credentials, restore. Mostly copying; minutes once downloaded.
+4. Step 4 (base model, ~54 GB) and step 5 (images) are the long ones. Start the model
+   download first, over plain HTTP (see Known problems), and do step 5 while it runs.
+   For step 5, **load the saved images when the backup has them**; build only when it
+   does not, or when the driver needs a different CUDA version.
+5. Steps 6–7: tests, then the GPU fit after the user approves.
+
+Download time is size ÷ link speed: about 70 GB in all, so ~20 min at 1 Gb/s and
+~2 h at 100 Mb/s.
+
+### Which hosts the images run on
+
+The images bundle their own CUDA runtime (pip `nvidia-*` wheels), so the host's CUDA
+toolkit, if any, does not matter. Only the **driver** does, and drivers run every older
+CUDA. One image set therefore covers every host whose driver is at least the lock's minimum:
+
+| Image locks | Driver needed | GPUs |
+|---|---|---|
+| CUDA 12.9 (`cu129`, current) | ≥ 575 | Ampere (A100, A6000) and newer, H100, H200 |
+| CUDA 12.8 (re-lock) | ≥ 570 | the same |
+| CUDA 13.0 (original October locks) | ≥ 580 | Ampere and newer |
+
+Re-lock only when a host's driver is below 575 and cannot be upgraded. Never change a
+host's driver to fit the images without the user's approval. `preflight.sh` reads the CUDA
+version from the lock and does this comparison.
+
 ## 0. Requirements
+
+All checks below are in `bash preflight.sh`. No root access is needed: the deadline
+timer in `launch-lib.sh` is a detached process, not a systemd unit.
 
 | Need | Why | Check |
 |---|---|---|
 | NVIDIA driver ≥ 575 | The image locks in `images/` use CUDA 12.9. (The original CUDA 13 locks needed ≥ 580.) | `nvidia-smi --query-gpu=driver_version --format=csv,noheader` |
 | Docker with the `nvidia` runtime, user in `docker` group | Every phase runs in a container. | `docker info \| grep -i runtimes` lists `nvidia` |
-| Passwordless `sudo systemd-run` / `systemctl` | `launch-lib.sh` starts a transient systemd timer that stops containers at the deadline. | `sudo -n true` |
 | Host RAM ≥ 160 GB | The update container is capped at 128 GB and frozen layers are offloaded to host memory. | `free -g` |
 | ≥ 250 GB free on the cache volume | Base model (~54 GB), one temporary merged model (~54 GB), images (~40 GB), run results. | `df -h` |
 | `jq`, `uv`, Python ≥ 3.10 with working SSL on the host | Launchers, `provenance.py`, downloads. If the first `python3` on PATH cannot `import ssl`, pass a working one as `HOST_PYTHON` to `images/build.sh`. | `which jq uv python3`; `python3 -c 'import ssl'` |
@@ -110,6 +144,25 @@ for f in *; do [ ${#f} -eq 64 ] && [ "$(sha256sum "$f" | cut -c1-64)" != "$f" ] 
 
 ## 5. Images
 
+### Load saved images (preferred)
+
+Loading keeps the image IDs, so the new host runs the **same** environment as the run
+records cite; a rebuild is a new environment even with the same pins. The private backup
+names the archive and its SHA-256 (see `private/`).
+
+```bash
+sha256sum images-cu129-v1.tar.zst        # must equal the recorded hash
+zstd -dc images-cu129-v1.tar.zst | docker load
+docker image inspect --format '{{.Id}}' audit-grpo-deps:cu129-v1 audit-grpo-vllm:cu129-v1
+```
+
+The IDs must equal those in the archive's `build.json`. Copy that file to
+`results/images-cu129-v1/build.json`. To make an archive after a build (needs the user's
+approval to upload):
+`docker save audit-grpo-deps:cu129-v1 audit-grpo-vllm:cu129-v1 | zstd -T0 -3 > images-cu129-v1.tar.zst`.
+
+### Build (when no archive fits this host's driver)
+
 ```bash
 bash images/build.sh <cache>/wheels   # tags audit-grpo-deps:cu129-v1 and audit-grpo-vllm:cu129-v1
 ```
@@ -168,6 +221,11 @@ host RAM, wall time, and that the adapter weights changed. Inference fit does no
 training fit.
 
 ## Known problems
+
+- **Stale tools early on PATH.** A directory such as `~/bin` copied from an older OS can
+  shadow system tools with broken copies: a Python without SSL, `tmux`/`screen`/
+  `systemd-run` missing shared libraries. `preflight.sh` warns when a tool does not
+  resolve to its system copy. Call `/usr/bin/<tool>` or fix PATH; never debug the copy.
 
 - **`hf_xet` downloads stall or fail** (`ChunkCache ... No such file or directory`,
   `IncompleteBody`), or report the full size and never exit. Download with

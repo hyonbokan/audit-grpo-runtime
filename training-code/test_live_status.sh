@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
-# live-status.sh reports the newest run's state while Docker/GPU/systemd stay offline.
+# live-status.sh reports the newest run's state and its deadline timers while Docker and the GPU stay offline.
 set -euo pipefail
 runtime_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 fixture_root="$(mktemp -d)"
 trap 'rm -rf -- "$fixture_root"' EXIT
-mkdir -p "$fixture_root/bin" "$fixture_root/results/old-run" "$fixture_root/results/new-run"
+mkdir -p "$fixture_root/bin" "$fixture_root/results/old-run" "$fixture_root/results/new-run" \
+  "$fixture_root/results/deadline-timers"
+# A record whose watchdog has exited (pid 2147483647 cannot exist).
+printf '2147483647 1800000000 audit-grpo-new-run-rollout\n' \
+  > "$fixture_root/results/deadline-timers/audit-grpo-new-run-deadline.pid"
 cp "$runtime_root/live-status.sh" "$fixture_root/live-status.sh"
 cat > "$fixture_root/bin/docker" <<'SH'
 #!/usr/bin/env bash
@@ -15,10 +19,6 @@ SH
 cat > "$fixture_root/bin/nvidia-smi" <<'SH'
 #!/usr/bin/env bash
 printf '0 MiB, 81559 MiB, 0 %%\n'
-SH
-cat > "$fixture_root/bin/systemctl" <<'SH'
-#!/usr/bin/env bash
-printf 'audit-grpo-run-deadline.timer\n'
 SH
 chmod +x "$fixture_root/bin/"*
 cat > "$fixture_root/results/old-run/state.json" <<'JSON'
@@ -42,4 +42,9 @@ output="$(PATH="$fixture_root/bin:$PATH" bash "$fixture_root/live-status.sh")"
   printf 'FAIL: an older run was reported\n' >&2
   exit 1
 }
-printf 'PASS: newest run state reported\n'
+expected='audit-grpo-new-run-deadline: not running, fires 2027-01-15 08:00:00 UTC, stops audit-grpo-new-run-rollout'
+[[ "$output" == *"$expected"* ]] || {
+  printf 'FAIL: deadline timer record is missing\n%s\n' "$output" >&2
+  exit 1
+}
+printf 'PASS: newest run state and deadline timers reported\n'

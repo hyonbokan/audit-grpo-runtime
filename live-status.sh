@@ -25,6 +25,13 @@ if [[ -n "$state" ]]; then
 else
   printf '\nNo training run state under results/\n'
 fi
+# launch-lib.sh records each detached deadline watchdog as "<pid> <fire epoch> <containers>".
 printf '\nDeadline timers\n'
-systemctl list-timers --all --no-legend 'audit-grpo-*' || true
+for record in "$runtime_root"/results/deadline-timers/*.pid; do
+  [[ -f "$record" ]] || continue
+  read -r pid fires containers < "$record"
+  [[ -d "/proc/$pid" ]] && state=waiting || state='not running'
+  printf '%s: %s, fires %s, stops %s\n' "$(basename -- "$record" .pid)" "$state" \
+    "$(date -u -d "@$fires" '+%Y-%m-%d %H:%M:%S UTC')" "$containers"
+done
 printf '\nCurrent instructions: %s/private/README.md\n' "$runtime_root"

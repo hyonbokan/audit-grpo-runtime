@@ -43,9 +43,6 @@ stop) exit 0;;
 *) echo 'unexpected next phase' >&2; exit 99;;
 esac
 """,
-        "sudo": '#!/bin/bash\nexec "$@"\n',
-        "systemd-run": "#!/bin/bash\nexit 0\n",
-        "systemctl": "#!/bin/bash\nexit 0\n",
     }
     for name, text in scripts.items():
         path = executables / name
@@ -110,9 +107,6 @@ inspect) echo '{}';;
 *) echo "unexpected docker $1" >&2; exit 99;;
 esac
 """,
-        "sudo": '#!/bin/bash\nexec "$@"\n',
-        "systemd-run": "#!/bin/bash\nexit 0\n",
-        "systemctl": "#!/bin/bash\nexit 0\n",
     }
     for name, text in scripts.items():
         path = executables / name

@@ -31,19 +31,40 @@ remaining() {
   printf '%s\n' "$left"
 }
 
-# A transient systemd timer stops the named containers at the deadline, even if this shell dies.
+# Deadline timers: a detached watchdog per run stops the named containers at the deadline,
+# even if the launcher shell dies. It needs no root or systemd, so it works on any host.
+DEADLINE_TIMERS="$runtime_root/results/deadline-timers"
+
+# The record holds the watchdog's pid, the epoch second it fires and the containers.
 start_deadline_timer() {
-  local timer=$1 seconds=$2
+  local timer=$1 seconds=$2 record="$DEADLINE_TIMERS/$1.pid" waited
   shift 2
-  # A previous attempt's transient timer would block reusing the unit name.
   stop_deadline_timer "$timer"
-  sudo systemctl reset-failed "$timer.timer" "$timer.service" >/dev/null 2>&1 || true
-  sudo systemd-run --quiet --unit "$timer" --on-active="${seconds}s" /usr/bin/docker stop -t 0 "$@"
-  sudo systemctl is-active --quiet "$timer.timer"
+  mkdir -p "$DEADLINE_TIMERS"
+  # $0 names the timer, so stop_deadline_timer can tell a reused pid from the watchdog.
+  setsid bash -c 'record=$1 seconds=$2; shift 2
+    printf "%s %s %s\n" "$$" "$(( $(date +%s) + seconds ))" "$*" > "$record.new"
+    mv "$record.new" "$record"
+    sleep "$seconds"
+    docker stop -t 0 "$@"
+    rm -f "$record"' "deadline-timer:$timer" "$record" "$seconds" "$@" \
+    < /dev/null > /dev/null 2>&1 &
+  for ((waited = 0; waited < 50; waited++)); do
+    [[ -s "$record" ]] && return 0
+    sleep 0.1
+  done
+  echo "Deadline timer $timer did not start" >&2
+  return 1
 }
 
 stop_deadline_timer() {
-  sudo systemctl stop "$1.timer" >/dev/null 2>&1 || true
+  local record="$DEADLINE_TIMERS/$1.pid" pid
+  [[ -f "$record" ]] || return 0
+  read -r pid _ < "$record"
+  if tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null | grep -qF -- "deadline-timer:$1 "; then
+    kill -TERM -- "-$pid" 2>/dev/null || true
+  fi
+  rm -f "$record"
 }
 
 # Stop every started container and keep its log and final state under $1.

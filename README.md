@@ -19,6 +19,7 @@ Rules for changing anything here are in [AGENTS.md](AGENTS.md).
 | `workspace/` | Frozen backend snapshot used as `/workspace` (not in git). |
 | `live-status.sh` | Containers, GPU memory and the newest run's accepted checkpoint. |
 | `HOST_SETUP.md` | Preparing a new GPU host: requirements, restore from backup, images, checks. |
+| `preflight.sh` | Checks a host against `HOST_SETUP.md` and names the step that fixes each failure. |
 
 ## Working on the code
 
