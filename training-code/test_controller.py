@@ -167,21 +167,18 @@ def test_launcher_verifies_fresh_results_on_ephemeral_disk_before_any_worker(tmp
     assert not (binary / "docker-called").exists()
 
 
-def test_evaluation_freezes_the_latest_actual_step_with_fresh_xhigh_base(tmp_path):
+def test_evaluation_freezes_the_latest_actual_step(tmp_path):
     state = {
         "current_step": 7,
         "current_checkpoint": "/results/cp7",
         "current_adapter_sha256": "d" * 64,
     }
-    assert panels.evaluation_cases(state) == [
-        {"label": "base", "initial_step": 0},
-        {
-            "label": "checkpoint-7",
-            "initial_step": 7,
-            "checkpoint": "/results/cp7",
-            "initial_adapter_sha256": "d" * 64,
-        },
-    ]
+    assert panels.trained_case(state) == {
+        "label": "checkpoint-7",
+        "initial_step": 7,
+        "checkpoint": "/results/cp7",
+        "initial_adapter_sha256": "d" * 64,
+    }
 
 
 def test_incomplete_cached_merge_is_rejected_before_serving(tmp_path):
@@ -497,6 +494,83 @@ def test_release_final_merge_deletes_the_evaluated_checkpoints_merge(tmp_path, m
     assert not (tmp_path / merged.name).exists()
     assert json.loads(lines[0])["bytes"] == 50 + 132
     assert (out / "merge-receipts" / f"{merged.name}.json").is_file()
+
+
+def write_frozen_base_runs(results, *, skip=None):
+    """A finished base-only free-text run per project, as the schedule names them."""
+    from benchmark_free_text import evaluation_row_ids
+    from testing.benchmark import free_text_configuration
+
+    pattern = schedules.scope({"schedule_id": DAY})["evaluation_base_reference"]
+    hashes = {}
+    for row_id in evaluation_row_ids():
+        name = row_id.split("/", 1)[1]
+        root = results / pattern.format(project=name)
+        root.mkdir(parents=True)
+        (root / "prepared.json").write_text(json.dumps(free_text_configuration(row_id)))
+        (root / "private-truth.json").write_text(json.dumps([{"issue": i} for i in range(3)]))
+        if name != skip:
+            comparison = json.dumps({"draws": {"base": []}, "project": name})
+            (root / "comparison.json").write_text(comparison)
+            hashes[name] = hashlib.sha256(comparison.encode()).hexdigest()
+    return pattern, hashes
+
+
+def final_evaluation_run(tmp_path):
+    config = run_config(
+        tmp_path, judge_ledgers={"evaluation": "/results/run/evaluation-ledger.json"}
+    )
+    out = tmp_path / "runtime/results/run"
+    out.mkdir()
+    state = {
+        "current_step": 7,
+        "current_checkpoint": "/results/cp7",
+        "current_adapter_sha256": "d" * 64,
+    }
+    (out / "state.json").write_text(json.dumps(state))
+    return config, out
+
+
+def test_final_evaluation_runs_only_the_trained_arm_against_the_frozen_base(tmp_path):
+    from benchmark_evaluation import validate_benchmark_config
+
+    config, out = final_evaluation_run(tmp_path)
+    pattern, hashes = write_frozen_base_runs(tmp_path / "runtime/results")
+    reviewed = schedules.scope(config)
+    state = json.loads((out / "state.json").read_text())
+    [suite_root] = panels.evaluation_configs(config, out)
+    suite = json.loads((Path(suite_root) / "config.json").read_text())
+    assert suite["output_format"] == "free_text" and suite["trained_label"] == "checkpoint-7"
+    assert [p["name"] for p in suite["projects"]] == list(hashes)
+    for project in suite["projects"]:
+        name = project["name"]
+        base_run = pattern.format(project=name)
+        assert project["known_gt_count"] == 3
+        assert project["base_run_root"] == f"/results/{base_run}"
+        child = json.loads(
+            (tmp_path / "runtime/results" / project["run_id"] / "config.json").read_text()
+        )
+        frozen = json.loads((tmp_path / "runtime/results" / base_run / "prepared.json").read_text())
+        validate_benchmark_config(child)
+        assert child["cases"] == [panels.trained_case(state)]
+        assert child["generation_order"] == ["checkpoint-7"]
+        assert child["base_reference"] == {
+            "run_root": f"/results/{base_run}",
+            "comparison_sha256": hashes[name],
+        }
+        for key in ("sampling", "engine", "template_options", "benchmark_judge", "row_id"):
+            assert child[key] == frozen[key]
+        assert child["judge_operation_cap_usd"] == reviewed["evaluation_judge_cap_usd"]
+        assert child["absolute_deadline"] == reviewed["final_deadline"]
+        assert child["merged_model_path"] == panels.merged_path(config, state)
+
+
+def test_final_evaluation_needs_every_frozen_base_before_writing_anything(tmp_path):
+    config, out = final_evaluation_run(tmp_path)
+    write_frozen_base_runs(tmp_path / "runtime/results", skip="tigris")
+    with pytest.raises(FileNotFoundError, match=r"comparison\.json"):
+        panels.evaluation_configs(config, out)
+    assert not list((tmp_path / "artifacts").iterdir())
 
 
 def test_final_evaluation_always_covers_the_five_solidity_repositories():

@@ -490,3 +490,146 @@ def test_only_trained_arms_have_checkpoints_to_verify(tmp_path):
         verify_checkpoints([dict(arm, initial_adapter_sha256="0" * 64)])
     with pytest.raises(ValueError, match="trainer state"):
         verify_checkpoints([dict(arm, initial_step=5)])
+
+
+# --- Trained arm against the frozen base
+
+
+def frozen_base_and_trained_run(tmp_path):
+    """A finished base-only run, and a trained-arm run over the same frozen inputs."""
+    from testing.benchmark import free_text_configuration
+
+    base_config = free_text_configuration()
+    base_root, out = tmp_path / "base-run", tmp_path / "trained-run"
+    request = {
+        "prompt_ids": [1, 2],
+        "prompt_ids_sha256": hashlib.sha256(json.dumps([1, 2]).encode()).hexdigest(),
+        "model": {"precision": "bf16"},
+        "max_model_len": 262144,
+        "full_completion_ceiling": base_config["sampling"]["max_tokens"],
+    }
+    inputs = {
+        "request.json": json.dumps(request).encode(),
+        "private-truth.json": b'[{"issue":"known"}]',
+        "judge-prompt.txt": b"judge template",
+        "source-scope.json": b'[{"path":"A.sol","sha256":"0"}]',
+    }
+    for root in (base_root, out):
+        root.mkdir()
+        for name, data in inputs.items():
+            (root / name).write_bytes(data)
+    (base_root / "prepared.json").write_text(json.dumps(base_config))
+    base_draws = [
+        {"status": "graded", "exact_coverage": c, "coverage_including_partial": c}
+        for c in (0.0, 0.25, 0.25, 0.5)
+    ]
+    for draw in base_draws:
+        draw["completion_tokens"] = 2
+    comparison = json.dumps({"output_format": "free_text", "draws": {"base": base_draws}})
+    (base_root / "comparison.json").write_text(comparison)
+    trained = {
+        "label": "checkpoint-4",
+        "initial_step": 4,
+        "checkpoint": "/checkpoint",
+        "initial_adapter_sha256": "b" * 64,
+    }
+    config = dict(
+        base_config,
+        run_id="trained",
+        cases=[trained],
+        generation_order=["checkpoint-4"],
+        merged_model_path="/merged",
+        base_reference={
+            "run_root": str(base_root),
+            "comparison_sha256": hashlib.sha256(comparison.encode()).hexdigest(),
+        },
+    )
+    return config, out, base_root, base_draws
+
+
+def test_frozen_base_reference_returns_its_graded_base_draws(tmp_path):
+    from benchmark_evaluation import load_base_reference
+
+    config, out, _base_root, base_draws = frozen_base_and_trained_run(tmp_path)
+    assert load_base_reference(config, out) == base_draws
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda base, _out: (base / "comparison.json").write_text('{"draws": {}}'),
+        lambda base, _out: (base / "private-truth.json").write_bytes(b"[]"),
+        lambda base, _out: (base / "judge-prompt.txt").write_bytes(b"other judge"),
+        lambda base, _out: (base / "source-scope.json").write_bytes(b"[]"),
+        lambda _base, out: (out / "request.json").write_text(
+            json.dumps({"prompt_ids_sha256": "0" * 64})
+        ),
+        lambda base, _out: (base / "prepared.json").write_text(
+            json.dumps(
+                {
+                    **json.loads((base / "prepared.json").read_text()),
+                    "sampling": {"seed": 1},
+                }
+            )
+        ),
+        lambda base, _out: (base / "prepared.json").write_text(
+            json.dumps(
+                {
+                    **json.loads((base / "prepared.json").read_text()),
+                    "template_options": {"reasoning_effort": "medium"},
+                }
+            )
+        ),
+    ],
+)
+def test_frozen_base_must_match_the_trained_evaluation(tmp_path, change):
+    from benchmark_evaluation import load_base_reference
+
+    config, out, base_root, _ = frozen_base_and_trained_run(tmp_path)
+    change(base_root, out)
+    with pytest.raises(ValueError, match="base"):
+        load_base_reference(config, out)
+
+
+def test_trained_arm_finishes_with_deltas_against_the_frozen_base(tmp_path):
+    from benchmark_evaluation import finish_benchmark, validate_benchmark_config
+
+    config, out, _base_root, base_draws = frozen_base_and_trained_run(tmp_path)
+    validate_benchmark_config(config)
+    (out / "prepared.json").write_text(json.dumps(config))
+    trained = config["cases"][0]
+    (out / "checkpoint-4-config.json").write_text(
+        json.dumps(dict(config, **trained, request=str(out / "request.json")))
+    )
+    version = f"step-4:{'b' * 64}"
+    samples = json.dumps(
+        [{"prompt_ids": [1, 2], "completion_ids": [3, 4], "weight_version": version}] * 4
+    ).encode()
+    (out / "checkpoint-4").mkdir()
+    (out / "checkpoint-4/samples.json").write_bytes(samples)
+    (out / "checkpoint-4-grading").mkdir()
+    draws = [
+        {"status": "graded", "exact_coverage": c, "coverage_including_partial": c}
+        for c in (0.5, 0.5, 0.5, 0.5)
+    ]
+    for draw in draws:
+        draw["completion_tokens"] = 2
+    (out / "checkpoint-4-grading/metrics.json").write_text(
+        json.dumps(
+            {
+                "draws": draws,
+                "judge": config["benchmark_judge"],
+                "input_sha256": {
+                    "samples": hashlib.sha256(samples).hexdigest(),
+                    "private_truth": hashlib.sha256(b'[{"issue":"known"}]').hexdigest(),
+                    "judge_prompt": hashlib.sha256(b"judge template").hexdigest(),
+                },
+            }
+        )
+    )
+    finish_benchmark(config, out)
+    result = json.loads((out / "comparison.json").read_text())
+    assert result["status"] == "complete"
+    assert result["deltas"]["checkpoint-4"]["mean_exact_coverage"] == pytest.approx(0.25)
+    assert result["draws"]["base"] == base_draws
+    assert result["base_reference"] == config["base_reference"]

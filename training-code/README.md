@@ -14,13 +14,13 @@ in `../private/` (not in git; start with its README).
 |---|---|
 | `launch-training.sh` | Multi-visit run: prepare, one cycle per visit, backups, merge, final evaluation. |
 | `launch-cycle.sh` | One cycle: rollout → grading → update → acceptance. |
-| `launch-evaluation.sh` | One matched evaluation of one project (native benchmark). |
-| `launch-benchmark-suite.sh` | Runs `launch-evaluation.sh` per held-out project and writes the report. |
+| `launch-evaluation.sh` | One evaluation of one project (e.g. a frozen base run). |
+| `launch-benchmark-suite.sh` | Final evaluation: every project's trained arm in one vLLM engine, graded per project, reported. |
 | `launch-lib.sh` | Shared mounts, environment, deadline timer and live-container exec. |
 | `controller.py` | Phases `launch-training.sh` calls: `prepare`, `next`, `record`, `identity`, ... |
 | `schedules.py`, `schedules.json` | The reviewed schedules: shared defaults plus per-schedule overrides. |
 | `cycle_contract.py`, `cycle_scope.json` | Validates a cycle config and decides acceptance (14 conditions). |
-| `panels.py` | Final evaluation suite configs and merge identity. |
+| `panels.py` | Final evaluation suite configs, built from the frozen base runs, and merge identity. |
 | `frozen_requests.py` | Freezes each training row's prompt tokens for a run. |
 | `progress.py` | Training order and the update/skip decision. |
 | `hf_backup.py` | Verified private HF backups (thin per visit, full at start and end). |
@@ -150,5 +150,15 @@ The current benchmark is the free-text suite (`benchmark_suite: solidity_free_te
 the vulnerabilities a report asserts (kept in `<arm>-grading/extraction/`), and the reviewed
 one-to-one matcher grades them against the ground truth. A draw that stops inside its
 reasoning is graded on that reasoning (`answer_source: unclosed_reasoning`); a draw cut off at
-the context limit stays `truncated`. The base arm comes first; a trained arm is compared
-through its merged weights. Reasoning effort is `medium` or `xhigh` (the pinned template has no `high`), four draws per arm.
+the context limit stays `truncated`. A trained arm is compared through its merged weights.
+
+The base model is evaluated once, by its own run per project, and frozen. A training run's
+final evaluation generates only the trained arm: `panels.evaluation_configs` copies each
+project's config from the frozen base run named by the schedule's `evaluation_base_reference`
+and pins it as `base_reference` (run root and `comparison.json` hash).
+`benchmark_evaluation.load_base_reference` refuses a base run whose settings, prompt, truth,
+judge prompt or source scope differ, so the arms differ only in their weights.
+`launch-benchmark-suite.sh` samples every project's trained arm in one engine
+(`rollout.py evaluate-suite`): the merged weights load once and each request keeps its own
+seed and output allowance. One receipt, `rollout-receipt.json`, records the shared call's
+duration. Reasoning effort is `medium` or `xhigh` (the pinned template has no `high`), four draws per arm.

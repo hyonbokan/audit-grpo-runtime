@@ -165,3 +165,24 @@ def free_text_configuration(row_id="solidity/munchables", *, extra_verification=
         generation_order=["base"],
     )
     return config
+
+
+def trained_free_text_configuration(row_id="solidity/munchables", step=7):
+    """A reviewed trained-arm free-text config compared against a frozen base run."""
+    config = free_text_configuration(row_id)
+    case = {
+        "label": f"checkpoint-{step}",
+        "initial_step": step,
+        "checkpoint": f"/results/cp{step}",
+        "initial_adapter_sha256": "d" * 64,
+    }
+    config.update(
+        cases=[case],
+        generation_order=[case["label"]],
+        merged_model_path="/workspace/cache/merged",
+        base_reference={
+            "run_root": f"/results/base-{row_id.split('/', 1)[1]}",
+            "comparison_sha256": "c" * 64,
+        },
+    )
+    return config

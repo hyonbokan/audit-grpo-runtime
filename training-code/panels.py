@@ -9,16 +9,14 @@ from runtime_io import new_result_dir, read_json, save_json, sha256_file, utc_no
 from schedules import scope
 
 
-def evaluation_cases(state: dict) -> list[dict]:
-    return [
-        {"label": "base", "initial_step": 0},
-        {
-            "label": f"checkpoint-{state['current_step']}",
-            "initial_step": state["current_step"],
-            "checkpoint": state["current_checkpoint"],
-            "initial_adapter_sha256": state["current_adapter_sha256"],
-        },
-    ]
+def trained_case(state: dict) -> dict:
+    """The latest accepted checkpoint, the only arm a final evaluation generates."""
+    return {
+        "label": f"checkpoint-{state['current_step']}",
+        "initial_step": state["current_step"],
+        "checkpoint": state["current_checkpoint"],
+        "initial_adapter_sha256": state["current_adapter_sha256"],
+    }
 
 
 def merged_path(config: dict, state: dict) -> str:
@@ -48,64 +46,61 @@ def evaluation_projects() -> list[str]:
 
 
 def evaluation_configs(config: dict, out: Path) -> list[str]:
-    """Freeze the trained checkpoint, then write one benchmark config per held-out project."""
-    from transformers import AutoTokenizer
+    """Freeze the trained checkpoint, then write its config per project against the frozen base.
 
-    from benchmark_contract import load_assets
+    Each project's config is its frozen base run's own, so the arms differ only in the weights.
+    """
+    from benchmark_evaluation import validate_benchmark_config
 
     reviewed = scope(config)
     state = read_json(out / "state.json")
-    effort = reviewed["evaluation_effort"]
-    cases = evaluation_cases(state)
+    case = trained_case(state)
+    results = Path(config["runtime_host"]) / "results"
+    references = {}
+    for name in evaluation_projects():
+        base_run = reviewed["evaluation_base_reference"].format(project=name)
+        root = results / base_run
+        comparison = root / "comparison.json"
+        if not comparison.is_file():
+            raise FileNotFoundError(f"Frozen base run has no {comparison}")
+        references[name] = (base_run, read_json(root / "prepared.json"), sha256_file(comparison))
     save_json(
         out / "final-identity.json",
         {
-            "cases": cases,
+            "case": case,
             "locked_utc": utc_now().isoformat(),
             "selection": "latest accepted checkpoint, frozen before test",
         },
     )
-    tokenizer = AutoTokenizer.from_pretrained(config["cycle"]["model_path"], local_files_only=True)
     projects = []
-    for name in evaluation_projects():
-        template = read_json(
-            Path(config["runtime_host"]) / reviewed["evaluation_template"].format(project=name)
-        )
-        template.pop("evaluation_deadline_override", None)
-        template.pop("repeat_evaluation", None)
-        template["template_options"]["reasoning_effort"] = effort
-        assets = load_assets(
-            Path(config["evaluation_assets"]), "solidity", name, output_format="markdown"
-        )
-        ids = tokenizer.apply_chat_template(
-            [{"role": "user", "content": assets["prompt"]}], **template["template_options"]
-        )
-        ids = list(ids["input_ids"] if hasattr(ids, "keys") else ids)
+    for name, (base_run, frozen, comparison_sha256) in references.items():
         run_id = f"{out.name}-evaluation-{name}"
-        root = new_result_dir(config, run_id)
-        template.update(
+        child = dict(
+            frozen,
             run_id=run_id,
-            cases=cases,
-            generation_order=[case["label"] for case in cases],
-            weekend_schedule_id=reviewed["schedule_id"],
+            cases=[case],
+            generation_order=[case["label"]],
+            merged_model_path=merged_path(config, state),
+            base_reference={
+                "run_root": f"/results/{base_run}",
+                "comparison_sha256": comparison_sha256,
+            },
             absolute_deadline=reviewed["final_deadline"],
-            seconds_limit=reviewed["evaluation_seconds_limit"],
+            seconds_limit=min(frozen["seconds_limit"], reviewed["evaluation_seconds_limit"]),
             judge_operation_cap_usd=reviewed["evaluation_judge_cap_usd"],
             judge_ledger=config["judge_ledgers"]["evaluation"],
             judge_cap_usd=reviewed["evaluation_judge_cap_usd"],
-            prompt_token_count=len(ids),
-            assets=config["evaluation_assets"],
-            merged_model_path=merged_path(config, state),
-            source_plan=f"/results/{out.name}/source-plan.json",
         )
-        template["sampling"]["max_tokens"] = reviewed["maximum_context"] - len(ids)
-        save_json(root / "config.json", template)
+        validate_benchmark_config(child)
+        root = new_result_dir(config, run_id)
+        save_json(root / "config.json", child)
         projects.append(
             {
                 "name": name,
-                "known_gt_count": len(assets["ground_truth"]),
+                "known_gt_count": len(read_json(results / base_run / "private-truth.json")),
                 "run_id": run_id,
                 "run_root": f"/results/{run_id}",
+                "base_run_root": f"/results/{base_run}",
             }
         )
     suite = {
@@ -113,10 +108,10 @@ def evaluation_configs(config: dict, out: Path) -> list[str]:
         "runtime_host": config["runtime_host"],
         "absolute_deadline": reviewed["final_deadline"],
         "projects": projects,
-        "trained_label": cases[-1]["label"],
-        "sampling": {"n": 1},
-        "template_options": {"reasoning_effort": effort},
-        "output_format": "markdown",
+        "trained_label": case["label"],
+        "sampling": {"n": frozen["sampling"]["n"]},
+        "template_options": {"reasoning_effort": frozen["template_options"]["reasoning_effort"]},
+        "output_format": "free_text",
         "stop_on_project_failure": False,
         "judge_ledger": config["judge_ledgers"]["evaluation"],
         "rate_usd_per_hour": reviewed["rate_usd_per_hour"],

@@ -5,7 +5,7 @@
     "evaluation_effort": "medium",
     "evaluation_seconds_limit": 32400,
     "evaluation_judge_cap_usd": 30,
-    "evaluation_template": "results/benchmark-solidity1-full-context-20261009-{project}/config.json",
+    "evaluation_base_reference": "base-free-text-xhigh-20261021-{project}",
     "initial_group_reserve_seconds": 3600,
     "maximum_consecutive_truncated_groups": 2,
     "rate_usd_per_hour": 2.51,

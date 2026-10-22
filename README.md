@@ -46,7 +46,7 @@ flowchart TD
     K --> B["Visit backup and disk retention"]
     S --> B
     B --> C
-    K --> V["Final held-out evaluation"]
+    K --> V["Final evaluation against the frozen base"]
 ```
 
 The diagram shows the successful update and configured skip paths. Failed phases follow
@@ -70,7 +70,7 @@ launch instructions live in its [README](training-code/README.md).
 | Reward and judging | `grpo/judge_worker.py`, `grpo/reward.py`, `grpo/budget.py`, `grpo/judge_cache.py` | Grade candidates, enforce the reward contract and paid-call limits, and cache completed judging. |
 | Policy update | `grpo/corrected_update.py`, `grpo/corrected_loss.py` | Calculate advantages and the corrected objective, backpropagate, and take the optimizer step. |
 | Model execution | `grpo/native_policy.py`, `grpo/placement.py`, `grpo/memory_compat.py` | Load through Unsloth, attach PEFT adapters, place layers and manage memory/offloading. |
-| Evaluation | `panels.py`, `inference/`, evaluation launchers | Run held-out comparisons separately from training rewards. |
+| Evaluation | `panels.py`, `inference/`, evaluation launchers | Run held-out comparisons against the frozen base, separately from training rewards. |
 | Recovery and storage | `hf_backup.py`, `retention.py`, `runtime_io.py`, `provenance.py` | Verify backups, retain checkpoints, manage disk space, write receipts and freeze source identity. |
 
 The shell launchers sequence the work in containers; Python modules own the training

@@ -14,6 +14,29 @@ import benchmark_free_text as free_text
 from benchmark_contract import grading_input_hashes, load_assets, parse_completion
 from generation import validate_request
 from grpo.samples import write_new
+from runtime_io import sha256_bytes
+
+# Settings a saved reference arm must share with the run that reuses it.
+REFERENCE_KEYS = (
+    "model_id",
+    "model_revision",
+    "base_precision",
+    "sampling",
+    "engine",
+    "template_options",
+    "benchmark_judge",
+    "manifest_sha256",
+    "row_id",
+)
+BASE_REFERENCE_KEYS = (
+    *REFERENCE_KEYS,
+    "benchmark_suite",
+    "output_format",
+    "prompt_token_count",
+    "sampler_backend",
+    "rollout_image",
+    "assets",
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -291,6 +314,8 @@ def prepare_benchmark(config: dict[str, Any], out: Path) -> None:
     )
     if config.get("continuation_reference"):
         load_reference(config, out)
+    if config.get("base_reference"):
+        load_base_reference(config, out)
     for case in config["cases"]:
         write_new(
             out / f"{case['label']}-config.json",
@@ -398,12 +423,16 @@ def finish_benchmark(config: dict[str, Any], out: Path) -> None:
         )
         arms.append(arm)
     if config.get("benchmark_suite") == free_text.SUITE:
+        if config.get("base_reference"):
+            arms.insert(0, {"label": "base", "draws": load_base_reference(config, out)})
         result = {
             **free_text.summarize(arms),
             "scope": f"{config['row_id']}; free text, {config['sampling']['n']} draws per arm",
             "output_format": "free_text",
             "draws": {arm["label"]: arm["draws"] for arm in arms},
         }
+        if config.get("base_reference"):
+            result["base_reference"] = config["base_reference"]
     elif config.get("repeat_evaluation") and len(arms) == 1:
         result = {
             "status": "single_arm_completed"
@@ -498,27 +527,7 @@ def normalize_samples(samples: list[dict[str, Any]]) -> tuple[list[dict[str, Any
 
 def load_reference(config: dict[str, Any], out: Path) -> dict[str, Any]:
     root = Path(config["continuation_reference"])
-    saved = json.loads((root / "prepared.json").read_text())
-    for key in (
-        "model_id",
-        "model_revision",
-        "base_precision",
-        "sampling",
-        "engine",
-        "template_options",
-        "benchmark_judge",
-        "manifest_sha256",
-        "row_id",
-    ):
-        if saved[key] != config[key]:
-            raise ValueError(f"Saved benchmark reference differs: {key}")
-    for name in ("private-truth.json", "judge-prompt.txt", "source-scope.json"):
-        if (root / name).read_bytes() != (out / name).read_bytes():
-            raise ValueError(f"Saved benchmark reference input differs: {name}")
-    saved_request = json.loads((root / "request.json").read_text())
-    request = json.loads((out / "request.json").read_text())
-    if saved_request["prompt_ids_sha256"] != request["prompt_ids_sha256"]:
-        raise ValueError("Saved benchmark reference policy prompt differs")
+    verify_saved_inputs(root, config, out, REFERENCE_KEYS, "Saved benchmark")
     data = (root / "normalized/comparison.json").read_bytes()
     if hashlib.sha256(data).hexdigest() != config["reference_comparison_sha256"]:
         raise ValueError("Saved comparison identity differs")
@@ -526,6 +535,37 @@ def load_reference(config: dict[str, Any], out: Path) -> dict[str, Any]:
     if reference["panel"] != config["content_panel"]:
         raise ValueError("Saved benchmark content panel differs")
     return reference
+
+
+def load_base_reference(config: dict[str, Any], out: Path) -> list[dict[str, Any]]:
+    """The frozen base run's graded draws, once it is shown to differ only in the weights."""
+    reference = config["base_reference"]
+    root = Path(reference["run_root"])
+    verify_saved_inputs(root, config, out, BASE_REFERENCE_KEYS, "Frozen base")
+    data = (root / "comparison.json").read_bytes()
+    if sha256_bytes(data) != reference["comparison_sha256"]:
+        raise ValueError("Frozen base comparison identity differs")
+    draws = json.loads(data)["draws"]["base"]
+    if len(draws) != config["sampling"]["n"]:
+        raise ValueError("Frozen base draw count differs from this evaluation")
+    return draws
+
+
+def verify_saved_inputs(
+    root: Path, config: dict[str, Any], out: Path, keys: tuple[str, ...], label: str
+) -> None:
+    """A saved run used as a reference had this run's settings, prompt, truth and judge."""
+    saved = json.loads((root / "prepared.json").read_text())
+    for key in keys:
+        if saved.get(key) != config.get(key):
+            raise ValueError(f"{label} reference differs: {key}")
+    for name in ("private-truth.json", "judge-prompt.txt", "source-scope.json"):
+        if (root / name).read_bytes() != (out / name).read_bytes():
+            raise ValueError(f"{label} reference input differs: {name}")
+    saved_request = json.loads((root / "request.json").read_text())
+    request = json.loads((out / "request.json").read_text())
+    if saved_request["prompt_ids_sha256"] != request["prompt_ids_sha256"]:
+        raise ValueError(f"{label} reference policy prompt differs")
 
 
 if __name__ == "__main__":

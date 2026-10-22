@@ -7,6 +7,7 @@ against the private ground truth, so coverage stays comparable with earlier suit
 
 from __future__ import annotations
 
+import re
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,7 @@ from grpo.placement import rollout_gpus
 from runtime_io import read_json
 
 SUITE = "solidity_free_text"
+SHA256 = re.compile(r"[0-9a-f]{64}")
 SEVERITIES = ("High", "Medium", "Low", "Info", "N/A")
 FINDING_KEYS = {"issue", "description", "severity", "contracts"}
 SCOPE_PATH = Path(__file__).parents[1] / "benchmark_scope.json"
@@ -127,9 +129,26 @@ def validate_config(config: dict[str, Any]) -> None:
 
 def validate_cases(config: dict[str, Any]) -> None:
     cases = config.get("cases", [])
-    if not cases or cases[0] != {"label": "base", "initial_step": 0} or len(cases) > 2:
-        raise ValueError("Cases are the base arm, optionally followed by one trained arm")
-    for case in cases[1:]:
+    reference = config.get("base_reference")
+    if reference is not None:
+        if (
+            not isinstance(reference, dict)
+            or set(reference) != {"run_root", "comparison_sha256"}
+            or not isinstance(reference["run_root"], str)
+            or not SHA256.fullmatch(str(reference["comparison_sha256"]))
+        ):
+            raise ValueError("The frozen base reference names its run root and comparison hash")
+        if len(cases) != 1 or cases[0].get("label") == "base":
+            raise ValueError("Against a frozen base, the run generates one trained arm only")
+        trained = cases
+    elif not cases or cases[0] != {"label": "base", "initial_step": 0} or len(cases) > 2:
+        raise ValueError(
+            "Cases are the base arm, optionally followed by one trained arm, "
+            "or one trained arm with a frozen base reference"
+        )
+    else:
+        trained = cases[1:]
+    for case in trained:
         step = case.get("initial_step")
         if (
             type(step) is not int
