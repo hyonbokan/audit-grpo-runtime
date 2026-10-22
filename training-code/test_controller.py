@@ -525,6 +525,35 @@ def test_release_final_merge_deletes_the_evaluated_checkpoints_merge(tmp_path, m
     assert (out / "merge-receipts" / f"{merged.name}.json").is_file()
 
 
+def test_verify_final_merge_accepts_only_the_current_checkpoints_unchanged_merge(
+    tmp_path, monkeypatch
+):
+    out = tmp_path / "run"
+    out.mkdir()
+    checkpoint = tmp_path / "checkpoint-6"
+    checkpoint.mkdir()
+    (checkpoint / "adapter_model.safetensors").write_bytes(b"adapter")
+    digest = hashlib.sha256(b"adapter").hexdigest()
+    state = {
+        "current_step": 6,
+        "current_checkpoint": str(checkpoint),
+        "current_adapter_sha256": digest,
+    }
+    (out / "state.json").write_text(json.dumps(state))
+    merged = tmp_path / "merged"
+    monkeypatch.setattr(controller, "merged_path", lambda *_: str(merged))
+    merged.mkdir()
+    (merged / "model.safetensors").write_bytes(b"weights")
+    files = {"model.safetensors": {"merged_sha256": hashlib.sha256(b"weights").hexdigest()}}
+    manifest = {"status": "merged_and_verified", "adapter_sha256": digest, "files": files}
+    (merged / "MERGE_MANIFEST.json").write_text(json.dumps(manifest))
+    config = {"schedule_id": DAY, "run_id": "run"}
+    assert controller.phase_verify_final_merge(config, out, 1) == []
+    (merged / "model.safetensors").write_bytes(b"changed")
+    with pytest.raises(ValueError, match=r"changed: model\.safetensors"):
+        controller.phase_verify_final_merge(config, out, 1)
+
+
 def write_frozen_base_runs(results, *, skip=None):
     """A finished base-only free-text run per project, as the schedule names them."""
     from benchmark_free_text import evaluation_row_ids

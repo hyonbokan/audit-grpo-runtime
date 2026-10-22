@@ -110,9 +110,7 @@ merge() {
   local adapter=$1 output=$2
   # Use only a complete matching merge; partial merge directories fail closed.
   if [[ -d "$CACHE/${output#/workspace/cache/}" ]]; then
-    docker run --rm --network none "${controller_mounts[@]}" -e "PYTHONPATH=$pythonpath" "$CPU_IMAGE" \
-      /opt/pilot/gpu/bin/python -c \
-      'import sys; from pathlib import Path; from panels import verify_merge; verify_merge(Path(sys.argv[1]),Path(sys.argv[2]))' "$output" "$adapter"
+    cpu verify-final-merge
     return
   fi
   event merge

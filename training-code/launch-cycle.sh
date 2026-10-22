@@ -85,10 +85,7 @@ gpu_phase() {
   printf '%s\n' "$(( $(date +%s) - phase_started ))" > "$run_root/$phase-seconds.txt"
 }
 phase_complete() {
-  local receipt="$run_root/$1/receipt.json" expected=versioned_rollout_saved
-  [[ "$1" == update ]] && expected=corrected_update_saved
-  [[ -f "$receipt" ]] && python3 -c 'import json, sys
-sys.exit(json.load(open(sys.argv[1])).get("status") != sys.argv[2])' "$receipt" "$expected"
+  python3 "$code_root/cycle_recovery.py" complete "$run_root" "$1"
 }
 
 phase=rollout

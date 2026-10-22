@@ -13,7 +13,7 @@ from typing import Any
 
 from frozen_requests import extend_request, rerender_request
 from hf_backup import backed_up_visits
-from panels import evaluation_configs, merged_path
+from panels import evaluation_configs, merged_path, verify_merge
 from progress import training_order, verify_dataset
 from retention import prune_visits, release_merge, require_free_space
 from runtime_io import new_result_dir, read_json, save_json, seconds_until, sha256_file, utc_now
@@ -101,6 +101,13 @@ def phase_prune(config: dict, out: Path, _attempts: int) -> list[str]:
     return [json.dumps({"files": len(removed), "bytes": sum(e["bytes"] for e in removed)})]
 
 
+def phase_verify_final_merge(config: dict, out: Path, _attempts: int) -> list[str]:
+    """Refuse a cached final merge that is incomplete or holds other weights."""
+    state = read_json(out / "state.json")
+    verify_merge(Path(merged_path(config, state)), Path(state["current_checkpoint"]))
+    return []
+
+
 def phase_release_final_merge(config: dict, out: Path, _attempts: int) -> list[str]:
     merged = Path(merged_path(config, read_json(out / "state.json")))
     released = release_merge(merged, out / "merge-receipts" / f"{merged.name}.json")
@@ -133,6 +140,7 @@ PHASES = {
     "prune": phase_prune,
     "identity": phase_identity,
     "evaluation": phase_evaluation,
+    "verify-final-merge": phase_verify_final_merge,
     "release-final-merge": phase_release_final_merge,
 }
 

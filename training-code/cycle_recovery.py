@@ -1,4 +1,4 @@
-"""Archive a failed cycle attempt so `launch-cycle.sh --resume` reuses completed phases."""
+"""Which cycle phases are complete, and archiving a failed attempt so `--resume` reuses them."""
 
 # Runs with the host interpreter, so it imports only the stdlib.
 
@@ -23,12 +23,16 @@ def completed_phases(root: Path) -> dict[str, bool]:
         if phase == "grading":
             done = (root / "grading/rewards.json").is_file()
         else:
-            receipt = root / phase / "receipt.json"
-            done = receipt.is_file() and (
-                json.loads(receipt.read_text()).get("status") == COMPLETE_STATUS[phase]
-            )
+            done = receipt_complete(root, phase)
         complete[phase] = done and all(complete.values())
     return complete
+
+
+def receipt_complete(root: Path, phase: str) -> bool:
+    receipt = root / phase / "receipt.json"
+    return receipt.is_file() and (
+        json.loads(receipt.read_text()).get("status") == COMPLETE_STATUS[phase]
+    )
 
 
 def archive_failed_attempt(root: Path, config: dict) -> Path:
@@ -71,10 +75,18 @@ def archive_failed_attempt(root: Path, config: dict) -> Path:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("archive",))
-    parser.add_argument("root", type=Path)
-    parser.add_argument("config", type=Path)
+    actions = parser.add_subparsers(dest="action", required=True)
+    archive = actions.add_parser("archive", help="archive a failed attempt before --resume")
+    archive.add_argument("root", type=Path)
+    archive.add_argument("config", type=Path)
+    complete = actions.add_parser("complete", help="exit 0 when the phase receipt is complete")
+    complete.add_argument("root", type=Path)
+    complete.add_argument("phase", choices=sorted(COMPLETE_STATUS))
     args = parser.parse_args(argv)
+    return ACTIONS[args.action](args)
+
+
+def action_archive(args: argparse.Namespace) -> int:
     archive = archive_failed_attempt(args.root, json.loads(args.config.read_text()))
     reused = json.loads((archive / "resume.json").read_text())["reused"]
     print(
@@ -82,6 +94,13 @@ def main(argv: list[str] | None = None) -> int:
         f"previous attempt archived in {archive}"
     )
     return 0
+
+
+def action_complete(args: argparse.Namespace) -> int:
+    return 0 if receipt_complete(args.root, args.phase) else 1
+
+
+ACTIONS = {"archive": action_archive, "complete": action_complete}
 
 
 if __name__ == "__main__":
