@@ -63,17 +63,17 @@ One document per purpose. Link to the owner instead of repeating it.
 |---|---|
 | Read or write JSON, hash files or bytes, current time, deadlines, result directories | `runtime_io.py` **(conventions)** |
 | Schedule limits, cutoffs, caps, rates, paths | `schedules.scope(config)` / `schedules.json` **(conventions)** |
-| Training order, update/skip decision, checkpoint selection | `progress.py` |
-| Validation and final-evaluation configs, merge identity | `panels.py` |
+| Training order, update/skip decision | `progress.py` |
+| Final-evaluation configs, merge identity | `panels.py` |
 | Prompt rendering, policy rows, judge contract | `grpo/policy_prompt.py` |
 | Request validation, sampled-batch capture | `inference/generation.py` |
 | Docker mounts, deadline timer, live-container exec | `launch-lib.sh` |
 | Test configs, synthetic judge workspace, frozen clock | `testing/` |
 
 The `test_conventions.py` ratchet records today's legacy duplicates of `runtime_io`
-helpers, and today's function-level imports, per file. Counts may only go down. When a
-change removes some, regenerate the baseline (`python3 test_conventions.py --update`) in
-the same change.
+helpers, and today's function-level imports, per file. Counts may only go down. A change that
+removes some need not touch the baseline; lower it (`python3 test_conventions.py --update`)
+when you want the drop locked in.
 
 ## Python style
 
@@ -103,7 +103,7 @@ the same change.
 ## No silent fallbacks
 
 - An unknown id, kind or state raises with the allowed values, e.g. `schedules.scope` or
-  `validate_evaluation_config`. Never map an unmatched value to a default branch.
+  `benchmark_free_text.validate_config`. Never map an unmatched value to a default branch.
 - Read required config with `config["key"]`. Use `.get(key, default)` only for an optional
   field whose default is deliberate, and say so in a comment.
 - No magic numbers in logic. Policy values go in `schedules.json` or a reviewed
@@ -144,8 +144,7 @@ the same change.
 
 1. Ruff check and format are clean, and the full suite passes.
 2. `python3 training-code/provenance.py` has been run (needed after any source or config change).
-3. Every document naming what changed is updated, and the conventions baseline too if
-   debt went down.
+3. Every document naming what changed is updated.
 4. You report what was verified and what was not (GPU path, paid judge, vLLM tests).
 
 ## Runs, money and safety

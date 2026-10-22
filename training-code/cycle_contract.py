@@ -12,7 +12,34 @@ from typing import Any
 
 import schedules
 from grpo.placement import docker_gpus, load_options, rollout_gpus
+from runtime_io import read_json, sha256_file
 
+SCOPE_PATH = Path(__file__).with_name("cycle_scope.json")
+
+# A cycle config must equal the reviewed value of each of these.
+PROTECTED_KEYS = (
+    "model_id",
+    "model_revision",
+    "base_precision",
+    "native_adapter_precision",
+    "rollout_adapter_precision",
+    "sampler_backend",
+    "optimizer_kind",
+    "initial_step",
+    "target_step",
+    "learning_rate",
+    "epsilon",
+    "correction_max",
+    "max_grad_norm",
+    "offload_layers",
+    "prefetch_depth",
+    "update_placement",
+    "seed",
+    "sampling",
+    "retry_limit",
+    "rate_usd_per_hour",
+    "absolute_deadline",
+)
 CONDITIONS = (
     "complete_group",
     "known_grades",
@@ -24,8 +51,8 @@ CONDITIONS = (
     "changed_weights",
     "optimizer_progress",
     "checkpoint_saved",
-    "fresh_worker_transfer",
-    "fresh_weight_version",
+    "saved_adapter_identity",
+    "weight_version_chain",
     "precision_declared",
     "repeat_drift_retained",
 )
@@ -41,96 +68,47 @@ def evaluate_cycle(evidence: dict[str, bool]) -> dict[str, Any]:
 
 
 def validate_config(config: dict[str, Any]) -> None:
-    required = json.loads(Path(__file__).with_name("cycle_scope.json").read_text())
-    if schedules.is_registered(config.get("schedule_id")):
-        reviewed = schedules.scope(config)
-        limits = reviewed["training"]
-        prompt_count = config.get("prompt_token_count")
-        if type(prompt_count) is not int or not 0 < prompt_count < reviewed["maximum_context"]:
-            raise ValueError("Verified weekend prompt token count required")
-        required["absolute_deadline"] = reviewed["training_cutoff"]
-        required["engine"]["max_model_len"] = reviewed["maximum_context"]
-        required["engine"]["gpu_memory_utilization"] = limits["gpu_memory_utilization"]
-        required["sampling"]["max_tokens"] = reviewed["maximum_context"] - prompt_count
-        for name in ("offload_layers", "prefetch_depth", "update_placement"):
-            required[name] = limits.get(name, required[name])
-        # Absent means vLLM's single-GPU default, the only setting older schedules ran.
-        if "tensor_parallel_size" in limits:
-            required["engine"]["tensor_parallel_size"] = limits["tensor_parallel_size"]
-        limits = dict(limits, sampling=required["sampling"])
-        required["weekend"] = limits
-    continuation = config.get("schedule_id") is not None
-    if continuation:
-        limits = next(
-            (
-                required[key]
-                for key in ("continuation", "full_training", "audited_xhigh", "weekend")
-                if required.get(key, {}).get("schedule_id") == config["schedule_id"]
-            ),
-            None,
-        )
-        if limits is None:
-            raise ValueError(f"Unreviewed schedule {config['schedule_id']!r}")
-        if limits.get("policy_reasoning_effort"):
-            if config.get("policy_reasoning_effort") != limits["policy_reasoning_effort"]:
-                raise ValueError("Policy reasoning effort differs from reviewed scope")
-            required["sampling"] = limits["sampling"]
-        initial, target = config.get("initial_step"), config.get("target_step")
-        if (
-            config["schedule_id"] != limits["schedule_id"]
-            or type(initial) is not int
-            or type(target) is not int
-            or not limits["initial_step"] <= initial < target <= limits["maximum_step"]
-            or target != initial + 1
-            or not config.get("row_id")
-            or not config.get("dataset_workspace")
-        ):
-            raise ValueError("Continuation row or schedule differs from reviewed scope")
-        engine = config.get("engine", {})
-        context = engine.get("max_model_len")
-        if (
-            type(context) is not int
-            or not required["engine"]["max_model_len"] <= context <= limits["maximum_context"]
-            or {**engine, "max_model_len": required["engine"]["max_model_len"]}
-            != required["engine"]
-        ):
-            raise ValueError(
-                "Continuation engine differs from reviewed scope: "
-                + differing({**engine, "max_model_len": context}, required["engine"])
-            )
-        required.update(
-            initial_step=initial,
-            target_step=target,
-            engine=engine,
-            seconds_limit=limits["seconds_limit"],
-            judge_seconds_limit=limits["judge_seconds_limit"],
-        )
-    # Run paths may vary; model, objective and schedule stay within reviewed scope.
-    protected = (
-        "model_id",
-        "model_revision",
-        "base_precision",
-        "native_adapter_precision",
-        "rollout_adapter_precision",
-        "sampler_backend",
-        "optimizer_kind",
-        "initial_step",
-        "target_step",
-        "learning_rate",
-        "epsilon",
-        "correction_max",
-        "max_grad_norm",
-        "offload_layers",
-        "prefetch_depth",
-        "update_placement",
-        "seed",
-        "sampling",
-        "engine",
-        "retry_limit",
-        "rate_usd_per_hour",
-        "absolute_deadline",
+    """One update within cycle_scope.json and the reviewed schedule the config names."""
+    reviewed = schedules.scope(config)
+    limits = reviewed["training"]
+    context = reviewed["maximum_context"]
+    prompt_count = config.get("prompt_token_count")
+    if type(prompt_count) is not int or not 0 < prompt_count < context:
+        raise ValueError("Measured prompt token count required")
+    initial, target = config.get("initial_step"), config.get("target_step")
+    if (
+        type(initial) is not int
+        or type(target) is not int
+        or target != initial + 1
+        or not limits["initial_step"] <= initial < target <= limits["maximum_step"]
+        or not config.get("row_id")
+        or not config.get("dataset_workspace")
+    ):
+        raise ValueError("Cycle step or row differs from the reviewed schedule")
+    if config.get("policy_reasoning_effort") != limits["policy_reasoning_effort"]:
+        raise ValueError("Policy reasoning effort differs from reviewed scope")
+    required = read_json(SCOPE_PATH)
+    required["engine"].update(
+        max_model_len=context, gpu_memory_utilization=limits["gpu_memory_utilization"]
     )
-    changed = [name for name in protected if config.get(name) != required[name]]
+    # Absent means vLLM's single-GPU default, the only setting older schedules ran.
+    if "tensor_parallel_size" in limits:
+        required["engine"]["tensor_parallel_size"] = limits["tensor_parallel_size"]
+    required["sampling"]["max_tokens"] = context - prompt_count
+    required.update(
+        initial_step=initial,
+        target_step=target,
+        offload_layers=limits["offload_layers"],
+        prefetch_depth=limits["prefetch_depth"],
+        update_placement=limits.get("update_placement", required["update_placement"]),
+        absolute_deadline=reviewed["training_cutoff"],
+    )
+    if config.get("engine") != required["engine"]:
+        raise ValueError(
+            "Cycle engine differs from reviewed scope: "
+            + differing(config.get("engine"), required["engine"])
+        )
+    changed = [name for name in PROTECTED_KEYS if config.get(name) != required[name]]
     if changed:
         raise ValueError(
             "Model, objective, precision or schedule differs from reviewed scope: "
@@ -144,25 +122,20 @@ def validate_config(config: dict[str, Any]) -> None:
     load_options(config["update_placement"])
     rollout_gpus(config["engine"])
     for name in ("seconds_limit", "judge_seconds_limit"):
-        upper = required[name]
-        if type(config.get(name)) is not int or not 0 < config[name] <= upper:
-            raise ValueError("Invalid reviewed time budget")
-    for name, lower, upper in (
-        (
-            "judge_operation_cap_usd",
-            0,
-            limits["judge_operation_cap_usd"] if continuation else 10,
-        ),
-        ("max_clip_fraction", 0, 0.05),
-        ("min_ess_fraction", 0.5, 1),
-    ):
+        if type(config.get(name)) is not int or not 0 < config[name] <= limits[name]:
+            raise ValueError(f"Invalid reviewed time budget: {name}")
+    bounds = {
+        **required["correction_bounds"],
+        "judge_operation_cap_usd": [0, limits["judge_operation_cap_usd"]],
+    }
+    for name, (lower, upper) in bounds.items():
         value = config.get(name)
         if (
             type(value) not in (int, float)
             or not math.isfinite(value)
             or not lower <= value <= upper
         ):
-            raise ValueError("Invalid reviewed correction/spending bound")
+            raise ValueError(f"Invalid reviewed correction or spending bound: {name}")
     if (
         config["judge_operation_cap_usd"] == 0
         or type(config.get("projection_chunk")) is not int
@@ -185,7 +158,7 @@ def differing(actual: Any, reviewed: dict[str, Any], prefix: str = "") -> str:
 def prepare_cycle(config: dict[str, Any], out: Path) -> None:
     validate_config(config)
     if (out / "prepared.json").exists() or any(
-        (out / name).exists() for name in ("rollout", "update", "refresh", "grading")
+        (out / name).exists() for name in ("rollout", "update", "grading")
     ):
         raise FileExistsError("GPU-cycle output must be fresh")
     deadline = datetime.fromisoformat(config["absolute_deadline"])
@@ -220,10 +193,9 @@ def prepare_cycle(config: dict[str, Any], out: Path) -> None:
     plan["judge_operation"] = {"id": config["run_id"], "cap_usd": config["judge_operation_cap_usd"]}
     if config.get("judge_env_file"):
         plan["judge_env_file"] = config["judge_env_file"]
-    if config.get("schedule_id"):
-        plan["judge_retry_limit"] = config["retry_limit"]
-        plan["dataset_workspace"] = config["dataset_workspace"]
-        plan["selected_row_id"] = config["row_id"]
+    plan["judge_retry_limit"] = config["retry_limit"]
+    plan["dataset_workspace"] = config["dataset_workspace"]
+    plan["selected_row_id"] = config["row_id"]
     if "judge_call_retries" in config:
         plan["judge_call_retries"] = config["judge_call_retries"]
     (out / "judge-plan.json").write_text(json.dumps(plan, indent=2) + "\n")
@@ -252,21 +224,17 @@ def validate_policy_profile(config: dict, request: dict, plan: dict) -> None:
 def finish_cycle(config: dict[str, Any], out: Path) -> dict[str, Any]:
     source = json.loads((out / "rollout/receipt.json").read_text())
     update = json.loads((out / "update/receipt.json").read_text())
-    fresh = json.loads((out / "refresh/receipt.json").read_text())
     samples = json.loads((out / "rollout/samples.json").read_text())
     grades = json.loads((out / "grading/rewards.json").read_text())
     prior = json.loads(Path(config["prior_analysis"]).read_text())
-    request = json.loads(Path(config["request"]).read_text()) if config.get("row_id") else None
+    request = read_json(config["request"])
     checkpoint = out / f"update/checkpoint-{config['target_step']}"
     evidence = {
         "complete_group": len(samples) == 4
-        and (
-            request is None
-            or all(
-                sample.get("row_id") == config["row_id"] == request["row_id"]
-                and sample.get("prompt_ids") == request["prompt_ids"]
-                for sample in samples
-            )
+        and all(
+            sample.get("row_id") == config["row_id"] == request["row_id"]
+            and sample.get("prompt_ids") == request["prompt_ids"]
+            for sample in samples
         ),
         "known_grades": len(grades) == 4
         and all(type(value) in (int, float) and math.isfinite(value) for value in grades),
@@ -290,15 +258,15 @@ def finish_cycle(config: dict[str, Any], out: Path) -> dict[str, Any]:
                 "trainer_state.json",
             )
         ),
-        "fresh_worker_transfer": fresh["transfer"]["cast_transfer_verified"],
-        "fresh_weight_version": fresh["weight_version"] == update["weight_version"]
-        and fresh["weight_version"] != source["weight_version"]
+        # vLLM's copy of this adapter is verified when the next visit's rollout loads it.
+        "saved_adapter_identity": (checkpoint / "adapter_model.safetensors").is_file()
+        and sha256_file(checkpoint / "adapter_model.safetensors") == update["adapter_sha256"]
+        and update["weight_version"] == f"step-{config['target_step']}:{update['adapter_sha256']}",
+        "weight_version_chain": update["weight_version"] != source["weight_version"]
         and update["source_weight_version"] == source["weight_version"]
         and all(sample["weight_version"] == source["weight_version"] for sample in samples),
-        "precision_declared": fresh["native_adapter_precision"]
-        == source["native_adapter_precision"]
-        == "float32"
-        and fresh["rollout_adapter_precision"] == source["rollout_adapter_precision"] == "bfloat16",
+        "precision_declared": source["native_adapter_precision"] == "float32"
+        and source["rollout_adapter_precision"] == "bfloat16",
         "repeat_drift_retained": "repeat" in prior
         and all(
             math.isfinite(prior["repeat"].get(name, float("nan")))

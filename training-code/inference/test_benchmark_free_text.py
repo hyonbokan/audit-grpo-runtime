@@ -30,16 +30,6 @@ def test_base_only_xhigh_effort_four_draw_config_is_reviewed():
     free_text.validate_config(free_text_configuration())
 
 
-def test_the_five_solidity_repos_are_the_evaluation_set():
-    assert free_text.evaluation_row_ids() == [
-        "solidity/munchables",
-        "solidity/vultisig",
-        "solidity/tigris",
-        "solidity/backd",
-        "solidity/phi",
-    ]
-
-
 @pytest.mark.parametrize(
     "change",
     [
@@ -85,9 +75,44 @@ def test_a_trained_arm_is_compared_through_its_merged_weights():
     free_text.validate_config(dict(config, merged_model_path="/merged"))
 
 
-def test_extracted_findings_may_omit_severity_and_contracts():
-    findings = [{"issue": "Reentrancy", "description": "...", "severity": "N/A", "contracts": []}]
-    assert free_text.validate_extracted({"findings": findings}) == findings
+TRAINED = {
+    "label": "checkpoint-4",
+    "initial_step": 4,
+    "checkpoint": "/checkpoint",
+    "initial_adapter_sha256": "b" * 64,
+}
+REFERENCE = {"run_root": "/results/base-run-munchables", "comparison_sha256": "c" * 64}
+
+
+def test_a_trained_arm_alone_is_compared_against_the_frozen_base():
+    config = free_text_configuration()
+    config.update(cases=[TRAINED], generation_order=["checkpoint-4"], merged_model_path="/m")
+    with pytest.raises(ValueError, match="frozen base"):
+        free_text.validate_config(config)
+    free_text.validate_config(dict(config, base_reference=REFERENCE))
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda c: c.update(cases=[{"label": "base", "initial_step": 0}, TRAINED]),
+        lambda c: c.update(base_reference={"run_root": "/results/base-run-munchables"}),
+        lambda c: c.update(base_reference=dict(REFERENCE, comparison_sha256="short")),
+        lambda c: c.update(cases=[TRAINED, dict(TRAINED, label="checkpoint-5", initial_step=5)]),
+    ],
+)
+def test_a_frozen_base_reference_admits_exactly_one_trained_arm(change):
+    config = free_text_configuration()
+    config.update(
+        cases=[TRAINED],
+        generation_order=["checkpoint-4"],
+        merged_model_path="/m",
+        base_reference=REFERENCE,
+    )
+    change(config)
+    config["generation_order"] = [case["label"] for case in config["cases"]]
+    with pytest.raises(ValueError):
+        free_text.validate_config(config)
 
 
 @pytest.mark.parametrize(

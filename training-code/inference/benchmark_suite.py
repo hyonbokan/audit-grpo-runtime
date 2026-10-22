@@ -1,140 +1,169 @@
-"""Bound a matched Solidity suite and report complete or explicitly partial panels."""
+"""Final evaluation suite: one shared engine for every project, then the suite report."""
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
-from datetime import UTC, datetime
 from pathlib import Path
 from statistics import mean
 from typing import Any
 
+import benchmark_free_text as free_text
 from benchmark_matching import native_metrics
+from generation import validate_shared_engine
+from runtime_io import read_json, save_json, seconds_until, utc_now
+
+# Leaves time to grade and report after the shared engine stops.
+SUITE_DEADLINE_MARGIN_SECONDS = 60
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("phase", choices=("next", "report"))
+    parser.add_argument("phase", choices=sorted(PHASES))
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
-    config = json.loads(args.config.read_text())
-    if args.phase == "next":
-        print(next_project(config))
-    else:
-        records = []
-        for project in config["projects"]:
-            path = Path(
-                project.get("reuse_comparison") or Path(project["run_root"]) / "comparison.json"
-            )
-            comparison = None
-            if path.is_file():
-                data = path.read_bytes()
-                if (
-                    project.get("comparison_sha256")
-                    and hashlib.sha256(data).hexdigest() != project["comparison_sha256"]
-                ):
-                    raise ValueError("Saved comparison identity differs")
-                comparison = json.loads(data)
-            execution = {}
-            for label in ("base", config.get("trained_label", "checkpoint-2")):
-                receipt = Path(project["run_root"]) / label / "receipt.json"
-                if receipt.is_file():
-                    saved = json.loads(receipt.read_text())
-                    execution[label] = {
-                        key: saved.get(key)
-                        for key in (
-                            "generation_seconds",
-                            "total_seconds",
-                            "completion_tokens",
-                            "tokens_per_second",
-                        )
-                    }
-            records.append({**project, "comparison": comparison, "execution": execution})
-        result = summarize_suite(
-            records,
-            sample_count=config.get("sampling", {}).get("n", 4),
-            output_format=config.get("output_format", "json"),
-            checkpoint_label=config.get("trained_label", "checkpoint-2"),
-        )
-        generation_seconds = sum(
-            arm.get("generation_seconds") or 0
-            for project in records
-            if not project.get("reuse_comparison")
-            for arm in project["execution"].values()
-        )
-        ledger = (
-            json.loads(Path(config["judge_ledger"]).read_text())
-            if config.get("judge_ledger")
-            else {}
-        )
-        operations = {p.get("run_id") for p in records if not p.get("reuse_comparison")}
-        calls = [call for call in ledger.get("calls", []) if call.get("operation_id") in operations]
-        result["cost"] = {
-            "judge_known_usage_estimate_usd": sum(call.get("estimated_usd") or 0 for call in calls),
-            "judge_conservative_charge_usd": sum(call["budget_charge_usd"] for call in calls),
-            "unsettled_judge_reservations": sum(call["status"] == "reserved" for call in calls),
-            "shared_ledger_charge_usd": ledger.get("budget_charge_usd"),
-            "generation_compute_estimate_usd": generation_seconds
-            / 3600
-            * config.get("rate_usd_per_hour", 0),
-            "scope": (
-                "New suite generation and judging; excludes reused results, model startup, "
-                "idle and other VM time."
-            ),
-        }
-        result.update(
-            run_id=config["run_id"],
-            generated_at=datetime.now(UTC).isoformat(),
-            configuration=config,
-            reasoning_effort=config.get("template_options", {}).get("reasoning_effort", "low"),
-        )
-        args.out.mkdir(parents=True, exist_ok=True)
-        temporary = args.out / "report.json.tmp"
-        temporary.write_text(json.dumps(result, indent=2) + "\n")
-        temporary.replace(args.out / "report.json")
-        (args.out / "REPORT.md").write_text(render_report(result))
+    for line in PHASES[args.phase](read_json(args.config), args.out):
+        print(line)
     return 0
 
 
-def next_project(config: dict[str, Any], *, now: datetime | None = None) -> str:
-    if config.get("stop_on_project_failure"):
-        for project in config["projects"]:
-            exit_path = Path(project["run_root"]) / "launcher-exit.txt"
-            if exit_path.is_file() and exit_path.read_text().strip() != "0":
-                return "complete"
-    now = now or datetime.now(UTC)
-    remaining = (
-        int((datetime.fromisoformat(config["absolute_deadline"]) - now).total_seconds()) - 60
-    )
-    if remaining < 600:
-        return "complete"
-    for project in config["projects"]:
-        if project.get("reuse_comparison"):
-            continue
+def phase_settings(config: dict[str, Any], _out: Path) -> list[str]:
+    return suite_settings(config)
+
+
+def phase_manifest(config: dict[str, Any], out: Path) -> list[str]:
+    return [str(write_rollout_manifest(config, out))]
+
+
+def phase_report(config: dict[str, Any], out: Path) -> list[str]:
+    write_report(config, out)
+    return []
+
+
+PHASES = {"settings": phase_settings, "manifest": phase_manifest, "report": phase_report}
+
+
+# --- One engine for every unfinished project
+
+
+def suite_settings(config: dict[str, Any]) -> list[str]:
+    """Lines read by launch-benchmark-suite.sh: images, time limits, arm and projects to run."""
+    pending = []
+    for project in unfinished_projects(config):
         root = Path(project["run_root"])
-        if (root / "launcher-exit.txt").exists() or (root / "comparison.json").exists():
-            continue
         if (root / "prepared.json").exists():
-            raise ValueError("An unfinished prepared run must not be restarted")
-        path = root / "config.json"
-        child = json.loads(path.read_text())
-        child["seconds_limit"] = min(child["seconds_limit"], remaining)
-        path.write_text(json.dumps(child, indent=2) + "\n")
-        return str(Path(config["runtime_host"]) / "results" / root.name)
-    return "complete"
+            raise ValueError(f"{project['name']}: an unfinished prepared run must not be restarted")
+        child = read_json(root / "config.json")
+        free_text.validate_config(child)
+        if child["generation_order"] != [config["trained_label"]]:
+            raise ValueError(f"{project['name']}: the suite generates only its trained arm")
+        pending.append((root.name, child))
+    if not pending:
+        return ["", "", "0", "0", config["trained_label"], ""]
+    children = [child for _, child in pending]
+    validate_shared_engine(children)
+    for key in ("native_image", "rollout_image", "judge_seconds_limit"):
+        if len({json.dumps(child[key]) for child in children}) != 1:
+            raise ValueError(f"Suite projects differ in {key}")
+    first = children[0]
+    left = int(seconds_until(config["absolute_deadline"])) - SUITE_DEADLINE_MARGIN_SECONDS
+    seconds = min(max(child["seconds_limit"] for child in children), left)
+    return [
+        first["native_image"],
+        first["rollout_image"],
+        str(seconds),
+        str(first["judge_seconds_limit"]),
+        config["trained_label"],
+        " ".join(name for name, _ in pending),
+    ]
+
+
+def write_rollout_manifest(config: dict[str, Any], out: Path) -> Path:
+    """The prepared arm of every unfinished project, for one shared engine."""
+    label = config["trained_label"]
+    manifest = {
+        "arms": [
+            {
+                "config": str(Path(project["run_root"]) / f"{label}-config.json"),
+                "out": str(Path(project["run_root"]) / label),
+            }
+            for project in unfinished_projects(config)
+        ],
+        "receipt": str(out / "rollout-receipt.json"),
+    }
+    path = out / "rollout-manifest.json"
+    save_json(path, manifest)
+    return path
+
+
+def unfinished_projects(config: dict[str, Any]) -> list[dict[str, Any]]:
+    return [p for p in config["projects"] if not (Path(p["run_root"]) / "comparison.json").exists()]
+
+
+# --- Report
+
+
+def write_report(config: dict[str, Any], out: Path) -> None:
+    """Score every finished project against its frozen base; unfinished ones stay pending."""
+    label = config["trained_label"]
+    records = []
+    for project in config["projects"]:
+        path = Path(project["run_root"]) / "comparison.json"
+        comparison = read_json(path) if path.is_file() else None
+        execution = {}
+        # The frozen base was generated by an earlier run; this suite only reads it.
+        for arm, root in (("base", project["base_run_root"]), (label, project["run_root"])):
+            receipt = Path(root) / arm / "receipt.json"
+            if receipt.is_file():
+                saved = read_json(receipt)
+                execution[arm] = {
+                    key: saved.get(key)
+                    for key in (
+                        "generation_seconds",
+                        "total_seconds",
+                        "completion_tokens",
+                        "tokens_per_second",
+                    )
+                }
+        records.append({**project, "comparison": comparison, "execution": execution})
+    result = summarize_suite(records, sample_count=config["sampling"]["n"], checkpoint_label=label)
+    # A shared engine records one duration for every project's trained arm.
+    shared_path = out / "rollout-receipt.json"
+    shared = read_json(shared_path) if shared_path.is_file() else None
+    generation_seconds = 0 if shared is None else shared.get("generation_seconds") or 0
+    if shared is not None:
+        result["shared_generation"] = shared
+    ledger = read_json(config["judge_ledger"])
+    operations = {p["run_id"] for p in records}
+    calls = [call for call in ledger.get("calls", []) if call.get("operation_id") in operations]
+    result["cost"] = {
+        "judge_known_usage_estimate_usd": sum(call.get("estimated_usd") or 0 for call in calls),
+        "judge_conservative_charge_usd": sum(call["budget_charge_usd"] for call in calls),
+        "unsettled_judge_reservations": sum(call["status"] == "reserved" for call in calls),
+        "shared_ledger_charge_usd": ledger.get("budget_charge_usd"),
+        "generation_compute_estimate_usd": generation_seconds / 3600 * config["rate_usd_per_hour"],
+        "scope": (
+            "This suite's trained-arm generation and judging; excludes the frozen base runs, "
+            "model startup, idle and other VM time."
+        ),
+    }
+    result.update(
+        run_id=config["run_id"],
+        generated_at=utc_now().isoformat(),
+        configuration=config,
+        reasoning_effort=config["template_options"]["reasoning_effort"],
+    )
+    out.mkdir(parents=True, exist_ok=True)
+    temporary = out / "report.json.tmp"
+    temporary.write_text(json.dumps(result, indent=2) + "\n")
+    temporary.replace(out / "report.json")
+    (out / "REPORT.md").write_text(render_report(result))
 
 
 def summarize_suite(
-    projects: list[dict[str, Any]],
-    *,
-    sample_count: int = 4,
-    output_format: str = "json",
-    checkpoint_label: str = "checkpoint-2",
+    projects: list[dict[str, Any]], *, sample_count: int, checkpoint_label: str
 ) -> dict[str, Any]:
-    if sample_count not in (1, 4):
-        raise ValueError("Unsupported suite sample count")
     summaries, completed = [], []
     for project in projects:
         comparison = project["comparison"]
@@ -147,27 +176,19 @@ def summarize_suite(
             "run_root": project.get("run_root"),
         }
         if comparison is not None:
-            if comparison.get("output_format", "json") != output_format:
-                raise ValueError("Comparison output format differs from the suite")
-            arms = comparison["arms"]
-            arms = list(arms.values()) if isinstance(arms, dict) else arms
-            if isinstance(comparison["arms"], dict):
-                arms = [dict(arm, label=label) for label, arm in comparison["arms"].items()]
-            if {arm["label"] for arm in arms} != {"base", checkpoint_label}:
-                raise ValueError("Matched base and checkpoint2 arms required")
-            for arm in arms:
-                draws = arm["draws"]
+            if comparison.get("output_format") != "free_text":
+                raise ValueError("Suite comparisons must be free-text")
+            if set(comparison["draws"]) != {"base", checkpoint_label}:
+                raise ValueError(f"Matched base and {checkpoint_label} arms required")
+            for label, draws in comparison["draws"].items():
                 if len(draws) != sample_count or any(
                     draw["known_gt_count"] != project["known_gt_count"] for draw in draws
                 ):
                     raise ValueError("Declared draws with the fixed GT denominator required")
                 known = all(draw["status"] == "graded" for draw in draws)
-                summary["arms"][arm["label"]] = {
+                summary["arms"][label] = {
                     "status": "graded" if known else "incomplete",
                     "draw_statuses": [draw["status"] for draw in draws],
-                    "strict_json_validity": comparison.get("strict_json_validity", {}).get(
-                        arm["label"]
-                    ),
                     **(arm_summary(draws) if known else {}),
                 }
             summary["status"] = (
@@ -204,7 +225,7 @@ def summarize_suite(
         },
         "quality_gain_established": False,
         "sample_count": sample_count,
-        "output_format": output_format,
+        "output_format": "free_text",
         "checkpoint_label": checkpoint_label,
         "limitations": [
             "Established regression benchmarks have historical inspection exposure.",
@@ -266,7 +287,7 @@ def arm_summary(draws: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def aggregate_projects(
-    projects: list[dict[str, Any]], *, checkpoint_label: str = "checkpoint-2"
+    projects: list[dict[str, Any]], *, checkpoint_label: str
 ) -> dict[str, Any] | None:
     if not projects:
         return None
@@ -302,13 +323,12 @@ def aggregate_projects(
 
 
 def render_report(result: dict[str, Any]) -> str:
-    trained = result.get("checkpoint_label", "checkpoint-2")
-    effort = result.get("reasoning_effort", "low")
+    trained, effort = result["checkpoint_label"], result["reasoning_effort"]
     lines = [
-        f"# Solidity 1: BF16 base versus GRPO {trained}",
+        f"# Free-text Solidity benchmark: frozen BF16 base versus GRPO {trained}",
         "",
-        f"Status: **{result['status']}**. {result['sample_count']} {effort} audit(s) per "
-        f"project and model; {result['output_format']} output.",
+        f"Status: **{result['status']}**. {result['sample_count']} {effort} audits per "
+        "project and model; free-text answers.",
         "",
         f"| Project | GT | Base exact recall | {trained} exact recall "
         f"| Base with partial | {trained} with partial |",
@@ -325,8 +345,7 @@ def render_report(result: dict[str, Any]) -> str:
     lines.extend(
         [
             "",
-            "Full precision/recall/F1, partial metrics, severity, strict validity and counts "
-            "are in `report.json`.",
+            "Full precision/recall/F1, partial metrics, severity and counts are in `report.json`.",
             "Missing/unknown projects do not receive zero scores; full-panel aggregates are "
             "withheld until complete.",
             "These observations do not establish general reasoning-quality or "

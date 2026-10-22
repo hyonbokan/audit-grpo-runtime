@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # CPU test suites in the pinned images; no GPU, network or paid calls.
-# Usage: bash training-code/run-tests.sh [native|judge|all] [extra pytest args]
+# Usage: bash training-code/run-tests.sh [native|judge|shell|all] [extra pytest args]
 # Exits non-zero when any selected suite fails. Environment overrides, used by
 # run-tests-local.sh: NATIVE_IMAGE, JUDGE_IMAGE, DOCKER_PLATFORM, TEST_TOOLS,
 # FROZEN_BACKEND, and UNAVAILABLE_TESTS (files the image cannot import, reported as not run).
@@ -20,8 +20,8 @@ unavailable=(${UNAVAILABLE_TESTS:-})
 # Python 3.14 judge environment: router, reward, budget and panel scoring code.
 judge_tests=(
   grpo/test_judge_worker.py grpo/test_reward.py grpo/test_judge_environment.py
-  grpo/test_budget.py grpo/test_judge_cache.py test_audited_reward.py
-  inference/test_benchmark_judge.py inference/test_heal_samples.py inference/test_panel_evaluation.py
+  grpo/test_budget.py grpo/test_judge_cache.py
+  inference/test_benchmark_judge.py
 )
 
 # Tests write beside their modules, so run on a copy.
@@ -69,6 +69,15 @@ if [[ "$which" == all || "$which" == native ]]; then
   for test in "${judge_tests[@]}"; do skip_judge+=(--ignore="$test"); done
   output=$(suite "$native_image" /opt/pilot/gpu/bin/python "${skip_judge[@]}" "$@" 2>&1)
   report native $? "$output"
+fi
+if [[ "$which" == all || "$which" == shell ]]; then
+  # Offline checks of the host scripts; they stub docker and nvidia-smi themselves.
+  for test in test_live_status.sh test_preflight.sh; do
+    output=$(bash "$code_root/$test" 2>&1)
+    code=$?
+    ((code == 0)) && output="passed" || output+=$'\n'"FAILED $test"
+    report shell $code "$output"
+  done
 fi
 if ((${#unavailable[@]})); then
   printf 'not run (image lacks their dependencies): %s\n' "${unavailable[*]}"

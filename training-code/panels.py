@@ -1,37 +1,22 @@
-"""Validation panels during training and the locked final evaluation suite."""
+"""The locked final evaluation suite and the merge identity it evaluates."""
 
 from __future__ import annotations
 
-import copy
 from pathlib import Path
 
-from benchmark_free_text import evaluation_row_ids
-from progress import aggregate_panel, select_checkpoint
-from runtime_io import new_result_dir, read_json, save_json, seconds_until, sha256_file, utc_now
+from benchmark_free_text import evaluation_row_ids, validate_config
+from runtime_io import new_result_dir, read_json, save_json, sha256_file, utc_now
 from schedules import scope
 
-# Cycle settings that describe an optimizer update, not an evaluation arm.
-UPDATE_ONLY_KEYS = (
-    "schedule_id",
-    "initial_step",
-    "target_step",
-    "checkpoint",
-    "initial_adapter_sha256",
-    "continuation_schedule",
-)
-LORA_ENGINE_KEYS = ("lora_dtype", "max_loras", "max_lora_rank")
 
-
-def evaluation_cases(state: dict) -> list[dict]:
-    return [
-        {"label": "base", "initial_step": 0},
-        {
-            "label": f"checkpoint-{state['current_step']}",
-            "initial_step": state["current_step"],
-            "checkpoint": state["current_checkpoint"],
-            "initial_adapter_sha256": state["current_adapter_sha256"],
-        },
-    ]
+def trained_case(state: dict) -> dict:
+    """The latest accepted checkpoint, the only arm a final evaluation generates."""
+    return {
+        "label": f"checkpoint-{state['current_step']}",
+        "initial_step": state["current_step"],
+        "checkpoint": state["current_checkpoint"],
+        "initial_adapter_sha256": state["current_adapter_sha256"],
+    }
 
 
 def merged_path(config: dict, state: dict) -> str:
@@ -52,106 +37,6 @@ def verify_merge(merged: Path, checkpoint: Path) -> None:
             raise ValueError(f"Cached merged file changed: {relative}")
 
 
-# --- Validation during training
-
-
-def validation_due(
-    state: dict, reviewed: dict, *, now_epoch: float, remaining_seconds: float
-) -> bool:
-    return (
-        state["completion_gate"]
-        and state["current_step"] > 2
-        and now_epoch - state["last_validation_epoch"] >= reviewed["validation_interval_seconds"]
-        and remaining_seconds > reviewed["validation_minimum_remaining_seconds"]
-    )
-
-
-def validation_configs(config: dict, out: Path) -> list[str]:
-    reviewed = scope(config)
-    state = read_json(out / "state.json")
-    if not validation_due(
-        state,
-        reviewed,
-        now_epoch=utc_now().timestamp(),
-        remaining_seconds=seconds_until(config["training_cutoff"]),
-    ):
-        return []
-    requests = read_json(out / "requests-manifest.json")
-    cases = [evaluation_cases(state)[-1]]
-    if not state["validation_history"]:
-        initial = config["cycle"]["initial_step"]
-        cases.insert(
-            0,
-            {
-                "label": f"checkpoint-{initial}",
-                "initial_step": initial,
-                "checkpoint": config["initial_checkpoint"],
-                "initial_adapter_sha256": config["initial_adapter_sha256"],
-            },
-        )
-    folders = []
-    for case in cases:
-        identity = {
-            "current_step": case["initial_step"],
-            "current_adapter_sha256": case["initial_adapter_sha256"],
-        }
-        for index, row_id in enumerate(config["validation_row_ids"]):
-            request = requests[row_id]
-            history = len(state["validation_history"])
-            name = f"{out.name}-validation-{history:02d}-{case['label']}-{index}"
-            root = new_result_dir(config, name)
-            panel = copy.deepcopy(config["cycle"])
-            for key in UPDATE_ONLY_KEYS:
-                panel.pop(key, None)
-            panel.update(
-                run_id=name,
-                weekend_schedule_id=reviewed["schedule_id"],
-                evaluation_kind="grpo_held_out_panel",
-                split="calibration",
-                row_id=row_id,
-                request=request["container_path"],
-                prompt_token_count=request["prompt_tokens"],
-                cases=[case],
-                merged_model_path=merged_path(config, identity),
-                source_plan=f"/results/{out.name}/validation-source-plan.json",
-                seconds_limit=reviewed["validation_seconds_limit"],
-                judge_operation_cap_usd=reviewed["validation_judge_cap_usd"],
-            )
-            panel["sampling"]["max_tokens"] = reviewed["maximum_context"] - request["prompt_tokens"]
-            panel["engine"].update(
-                enable_lora=False, return_sampling_mask=False, gpu_memory_utilization=0.9
-            )
-            for key in LORA_ENGINE_KEYS:
-                panel["engine"].pop(key, None)
-            save_json(root / "config.json", panel)
-            folders.append(str(root))
-    save_json(out / "pending-validation.json", folders)
-    return folders
-
-
-def record_validation(config: dict, out: Path) -> None:
-    state = read_json(out / "state.json")
-    grouped = {}
-    for name in read_json(out / "pending-validation.json"):
-        root = Path(name)
-        case = read_json(root / "config.json")["cases"][0]
-        result = read_json(root / "comparison.json")
-        entry = grouped.setdefault(
-            case["label"],
-            {"checkpoint": case["checkpoint"], "step": case["initial_step"], "projects": []},
-        )
-        entry["projects"].append(result["metrics"])
-    for entry in grouped.values():
-        entry["panel"] = aggregate_panel(entry.pop("projects"))
-        state["validation_history"].append(entry)
-    state["best_validation"] = select_checkpoint(
-        state["validation_history"],
-        minimum_improvement=scope(config)["validation_minimum_improvement"],
-    )
-    state["last_validation_epoch"] = utc_now().timestamp()
-    save_json(out / "state.json", state)
-
-
 # --- Final evaluation
 
 
@@ -161,64 +46,67 @@ def evaluation_projects() -> list[str]:
 
 
 def evaluation_configs(config: dict, out: Path) -> list[str]:
-    """Freeze the trained checkpoint, then write one benchmark config per held-out project."""
-    from transformers import AutoTokenizer
+    """Freeze the trained checkpoint, then write its config per project against the frozen base.
 
-    from benchmark_contract import load_assets
-
+    Each project's config is its frozen base run's own, so the arms differ only in the weights.
+    """
     reviewed = scope(config)
     state = read_json(out / "state.json")
-    effort = reviewed["evaluation_effort"]
-    cases = evaluation_cases(state)
+    case = trained_case(state)
+    results = Path(config["runtime_host"]) / "results"
+    references = {}
+    for name in evaluation_projects():
+        base_run = reviewed["evaluation_base_reference"].format(project=name)
+        root = results / base_run
+        comparison = root / "comparison.json"
+        if not comparison.is_file():
+            raise FileNotFoundError(f"Frozen base run has no {comparison}")
+        references[name] = (base_run, read_json(root / "prepared.json"), sha256_file(comparison))
+    # The suite report states one draw count and effort for every project.
+    shared = {
+        (frozen["sampling"]["n"], frozen["template_options"]["reasoning_effort"])
+        for _, frozen, _ in references.values()
+    }
+    if len(shared) != 1:
+        raise ValueError(f"Frozen base runs differ in draws per arm or reasoning effort: {shared}")
+    [(draws, effort)] = shared
     save_json(
         out / "final-identity.json",
         {
-            "cases": cases,
+            "case": case,
             "locked_utc": utc_now().isoformat(),
             "selection": "latest accepted checkpoint, frozen before test",
         },
     )
-    tokenizer = AutoTokenizer.from_pretrained(config["cycle"]["model_path"], local_files_only=True)
     projects = []
-    for name in evaluation_projects():
-        template = read_json(
-            Path(config["runtime_host"]) / reviewed["evaluation_template"].format(project=name)
-        )
-        template.pop("evaluation_deadline_override", None)
-        template.pop("repeat_evaluation", None)
-        template["template_options"]["reasoning_effort"] = effort
-        assets = load_assets(
-            Path(config["evaluation_assets"]), "solidity", name, output_format="markdown"
-        )
-        ids = tokenizer.apply_chat_template(
-            [{"role": "user", "content": assets["prompt"]}], **template["template_options"]
-        )
-        ids = list(ids["input_ids"] if hasattr(ids, "keys") else ids)
+    for name, (base_run, frozen, comparison_sha256) in references.items():
         run_id = f"{out.name}-evaluation-{name}"
-        root = new_result_dir(config, run_id)
-        template.update(
+        child = dict(
+            frozen,
             run_id=run_id,
-            cases=cases,
-            generation_order=[case["label"] for case in cases],
-            weekend_schedule_id=reviewed["schedule_id"],
+            cases=[case],
+            generation_order=[case["label"]],
+            merged_model_path=merged_path(config, state),
+            base_reference={
+                "run_root": f"/results/{base_run}",
+                "comparison_sha256": comparison_sha256,
+            },
             absolute_deadline=reviewed["final_deadline"],
-            seconds_limit=reviewed["evaluation_seconds_limit"],
+            seconds_limit=min(frozen["seconds_limit"], reviewed["evaluation_seconds_limit"]),
             judge_operation_cap_usd=reviewed["evaluation_judge_cap_usd"],
             judge_ledger=config["judge_ledgers"]["evaluation"],
             judge_cap_usd=reviewed["evaluation_judge_cap_usd"],
-            prompt_token_count=len(ids),
-            assets=config["evaluation_assets"],
-            merged_model_path=merged_path(config, state),
-            source_plan=f"/results/{out.name}/source-plan.json",
         )
-        template["sampling"]["max_tokens"] = reviewed["maximum_context"] - len(ids)
-        save_json(root / "config.json", template)
+        validate_config(child)
+        root = new_result_dir(config, run_id)
+        save_json(root / "config.json", child)
         projects.append(
             {
                 "name": name,
-                "known_gt_count": len(assets["ground_truth"]),
+                "known_gt_count": len(read_json(results / base_run / "private-truth.json")),
                 "run_id": run_id,
                 "run_root": f"/results/{run_id}",
+                "base_run_root": f"/results/{base_run}",
             }
         )
     suite = {
@@ -226,10 +114,10 @@ def evaluation_configs(config: dict, out: Path) -> list[str]:
         "runtime_host": config["runtime_host"],
         "absolute_deadline": reviewed["final_deadline"],
         "projects": projects,
-        "trained_label": cases[-1]["label"],
-        "sampling": {"n": 1},
+        "trained_label": case["label"],
+        "sampling": {"n": draws},
         "template_options": {"reasoning_effort": effort},
-        "output_format": "markdown",
+        "output_format": "free_text",
         "stop_on_project_failure": False,
         "judge_ledger": config["judge_ledgers"]["evaluation"],
         "rate_usd_per_hour": reviewed["rate_usd_per_hour"],

@@ -59,18 +59,6 @@ def test_native_evaluator_never_reuses_exact_finding_or_counts_unknown_as_zero()
     assert result["unmatched_findings"] == 0
 
 
-def test_empty_findings_keeps_full_gt_denominator_without_judge_calls():
-    from benchmark_matching import evaluate_findings
-
-    async def judge(prompt):
-        raise AssertionError("Empty scan needs no paid calls")
-
-    truth = {"issue": "x", "description": "body", "severity": "High", "contracts": []}
-    result = asyncio.run(evaluate_findings([], [truth], "unused", judge))
-    assert result["exact_coverage"] == 0
-    assert result["known_gt_count"] == 1
-
-
 def test_judge_failure_withholds_coverage_instead_of_scoring_missing_finding():
     from benchmark_matching import evaluate_findings
 

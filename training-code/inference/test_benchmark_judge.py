@@ -158,7 +158,7 @@ def test_saved_votes_are_consumed_once_without_api_spend(tmp_path, has_incomplet
 @pytest.fixture
 def offline_grading(tmp_path, monkeypatch):
     from benchmark_judge import RecordedJudgeRouter
-    from testing.benchmark import configuration
+    from testing.benchmark import free_text_configuration
 
     class OfflineRouter:
         closed = False
@@ -175,8 +175,8 @@ def offline_grading(tmp_path, monkeypatch):
         return router
 
     monkeypatch.setattr(RecordedJudgeRouter, "create", create)
-    config = configuration()
-    config.update(judge_ledger=str(tmp_path / "ledger.json"), judge_cap_usd=150)
+    config = free_text_configuration()
+    config.update(judge_ledger=str(tmp_path / "ledger.json"))
     (tmp_path / "config.json").write_text(json.dumps(config))
     (tmp_path / "private-truth.json").write_text('[{"severity":"High"}]')
     (tmp_path / "judge-prompt.txt").write_text("unused: no findings")
@@ -194,7 +194,7 @@ def test_missing_dotenv_credentials_stop_before_benchmark_grading(tmp_path, offl
         json.dumps(
             [
                 {
-                    "final_text": '{"vulnerabilities":[]}',
+                    "final_text": "an audit",
                     "finish_reason": "stop",
                     "completion_ids": [3],
                 }
@@ -208,15 +208,10 @@ def test_missing_dotenv_credentials_stop_before_benchmark_grading(tmp_path, offl
 
 
 @pytest.mark.parametrize(
-    "text,finish,expected,coverage",
-    [
-        ('{"vulnerabilities":[]}', "stop", "graded", 0),
-        ("bad", "stop", "invalid", None),
-        ('{"vulnerabilities":[]}', "length", "truncated", None),
-    ],
+    "text,finish,expected", [("", "stop", "no_answer"), ("an audit", "length", "truncated")]
 )
 def test_grading_records_input_identity_without_paid_calls(
-    tmp_path, offline_grading, text, finish, expected, coverage
+    tmp_path, offline_grading, text, finish, expected
 ):
     from benchmark_judge import grade_benchmark
 
@@ -232,8 +227,8 @@ def test_grading_records_input_identity_without_paid_calls(
         "judge_prompt": hashlib.sha256((tmp_path / "judge-prompt.txt").read_bytes()).hexdigest(),
     }
     assert [row["status"] for row in measured["draws"]] == [expected] * 4
-    # A draw that could not be read is unknown, never zero coverage.
-    assert [row["exact_coverage"] for row in measured["draws"]] == [coverage] * 4
+    # A draw with no answer to grade is unknown, never zero coverage.
+    assert [row["exact_coverage"] for row in measured["draws"]] == [None] * 4
     assert measured["judge_calls"] == 0
     assert offline_grading.closed
     assert not (tmp_path / "ledger.json").exists()
@@ -256,42 +251,46 @@ def test_invalid_replay_contract_closes_router(tmp_path, offline_grading):
     assert offline_grading.closed
 
 
-@pytest.mark.parametrize("sample_count,output_format", [(4, "json"), (1, "markdown")])
-def test_solidity1_grades_independent_draws_concurrently_with_native_matching(
-    tmp_path, monkeypatch, sample_count, output_format
-):
+def test_free_text_draws_are_graded_concurrently(tmp_path, monkeypatch):
     from openai.types.responses import Response
 
-    from benchmark_judge import MatchingVerdict, RecordedJudgeRouter, grade_benchmark
-    from testing.benchmark import configuration
+    from benchmark_judge import (
+        ExtractedReport,
+        MatchingVerdict,
+        RecordedJudgeRouter,
+        grade_benchmark,
+    )
+    from testing.benchmark import free_text_configuration
 
     seen = set()
     released = asyncio.Event()
 
     class RouterBoundary:
-        async def complete(self, model, messages, **settings):
-            text = messages[0]["content"]
-            for i in range(sample_count):
-                if f"draw-{i}" in text:
-                    seen.add(i)
-            if len(seen) == sample_count:
-                released.set()
-            await released.wait()
-            verdict = MatchingVerdict(
-                is_match=True,
-                is_partial_match=False,
-                explanation="same identity",
-                severity_from_junior_auditor="High",
-                severity_from_truth="High",
-                index_of_finding_from_junior_auditor=0,
-            )
+        async def complete(self, model, messages, *, response_model, **settings):
             raw = Response.model_construct(
                 id="test",
                 model=model,
                 status="completed",
                 usage={"input_tokens": 100, "output_tokens": 20},
             )
-            return SimpleNamespace(content=verdict, raw_response=raw)
+            if response_model is ExtractedReport:
+                # Every draw's extraction must be in flight before any of them returns.
+                seen.update(i for i in range(4) if f"draw-{i}" in messages[0]["content"])
+                if len(seen) == 4:
+                    released.set()
+                await released.wait()
+                finding = {"issue": "GT", "description": "body", "severity": "High"}
+                content = ExtractedReport(findings=[dict(finding, contracts=["A.sol"])])
+            else:
+                content = MatchingVerdict(
+                    is_match=True,
+                    is_partial_match=False,
+                    explanation="same identity",
+                    severity_from_junior_auditor="High",
+                    severity_from_truth="High",
+                    index_of_finding_from_junior_auditor=0,
+                )
+            return SimpleNamespace(content=content, raw_response=raw)
 
         async def close(self):
             pass
@@ -300,33 +299,20 @@ def test_solidity1_grades_independent_draws_concurrently_with_native_matching(
         return RouterBoundary()
 
     monkeypatch.setattr(RecordedJudgeRouter, "create", create)
-    config = configuration()
-    config.update(
-        benchmark_suite="solidity1",
-        grading_concurrency=4,
-        content_panel="conditional_content_after_sole_outer_json_fence_removed",
-        judge_ledger=str(tmp_path / "ledger.json"),
-        judge_cap_usd=150,
-    )
-    if output_format == "markdown":
-        config.update(benchmark_suite="solidity1_markdown", output_format="markdown")
-        config.pop("content_panel")
-        config["sampling"]["n"] = 1
+    config = free_text_configuration()
+    config.update(grading_concurrency=4, judge_ledger=str(tmp_path / "ledger.json"))
     (tmp_path / "config.json").write_text(json.dumps(config))
-    finding = {"issue": "GT", "description": "body", "contracts": [], "severity": "High"}
+    finding = {"issue": "GT", "description": "body", "contracts": ["A.sol"], "severity": "High"}
     (tmp_path / "private-truth.json").write_text(json.dumps([finding]))
     (tmp_path / "judge-prompt.txt").write_text("{ junior_findings } { truth_finding }")
     samples = [
         {
-            "final_text": (
-                f"## Finding 1: draw-{i}\nSeverity: High\nContracts: A.sol\n\nbody"
-                if output_format == "markdown"
-                else json.dumps({"vulnerabilities": [dict(finding, issue=f"draw-{i}")]})
-            ),
+            "final_text": f"audit of draw-{i}",
+            "raw_text": "</think>",
             "finish_reason": "stop",
             "completion_ids": [3],
         }
-        for i in range(sample_count)
+        for i in range(4)
     ]
     (tmp_path / "samples.json").write_text(json.dumps(samples))
 
@@ -340,10 +326,9 @@ def test_solidity1_grades_independent_draws_concurrently_with_native_matching(
 
     asyncio.run(run())
     metrics = json.loads((tmp_path / "grading/metrics.json").read_text())
-    assert [draw["exact_matches"] for draw in metrics["draws"]] == [1] * sample_count
+    assert [draw["exact_matches"] for draw in metrics["draws"]] == [1] * 4
     assert metrics["valid_response_rate"] == 1
-    assert metrics["judge_calls"] == 2 * sample_count
-    assert len(list((tmp_path / "grading").glob("call-*"))) == 2 * sample_count
+    assert len(list((tmp_path / "grading/extraction").glob("call-*"))) == 4
 
 
 def test_judge_accepts_another_response_schema_for_the_same_paid_boundary(tmp_path):

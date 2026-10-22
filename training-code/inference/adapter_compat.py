@@ -1,15 +1,17 @@
 """Pinned worker-buffer inspection; private LoRA layout access stays here."""
 
 import hashlib
+import importlib.metadata
 import json
 from pathlib import Path
 from typing import Any
 
 from safetensors.torch import load_file, save_file
 
-from sampler_compat import NativeSamplingWorker, require_pinned_vllm
 from transfer import merge_tensor_parallel, verify_transfer
 
+# Reviewed builds of the pinned release; the local tag names only the CUDA build.
+SUPPORTED_VLLM_BUILDS = frozenset({"0.31.0", "0.31.0+cu129"})
 # The buffer dimension vLLM 0.31 slices per rank in `set_lora`, by LoRA layer class. Packed
 # slices each hold their own rows on every rank, so rank order rebuilds them; absent buffers
 # are replicated. Classes not listed (e.g. QKVParallelLinearWithLoRA, which interleaves q/k/v
@@ -24,7 +26,20 @@ SHARDED_DIMS = {
 }
 
 
-class VerifiedAdapterWorker(NativeSamplingWorker):
+def require_pinned_vllm() -> str:
+    """Return the installed vLLM version, or raise unless it is a reviewed build."""
+    installed = importlib.metadata.version("vllm")
+    if installed not in SUPPORTED_VLLM_BUILDS:
+        raise ValueError(
+            f"Compatibility requires pinned vLLM layout: installed {installed}, "
+            f"allowed {sorted(SUPPORTED_VLLM_BUILDS)}"
+        )
+    return installed
+
+
+class VerifiedAdapterWorker:
+    """vLLM worker extension that loads, verifies and exports the active LoRA buffers."""
+
     def load_adapter(self, payload: list[Any]) -> bool:
         import msgspec
         from vllm.lora.request import LoRARequest

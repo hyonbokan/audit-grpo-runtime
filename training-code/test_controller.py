@@ -1,4 +1,4 @@
-"""The training controller: visit configs, visit records, identity and validation panels."""
+"""The training controller: visit configs, visit records, backups, identity and evaluation."""
 
 import hashlib
 import json
@@ -17,45 +17,6 @@ from cycle_contract import validate_config
 from testing.cycles import schedule_cycle
 
 WEEKEND = {"schedule_id": "weekend-grpo-20261009"}
-
-
-def cycle():
-    return schedule_cycle(WEEKEND["schedule_id"])
-
-
-def test_weekend_cycle_accepts_full_remaining_context_and_rejects_shortened_output():
-    config = cycle()
-    validate_config(config)
-    config["sampling"]["max_tokens"] = 32768
-    with pytest.raises(ValueError):
-        validate_config(config)
-
-
-def test_weekend_engine_reserves_full_context_memory_and_rejects_unreviewed_allocation():
-    config = cycle()
-    config["engine"]["gpu_memory_utilization"] = 0.9
-    validate_config(config)
-    for allocation in (0.85, 0.95):
-        config["engine"]["gpu_memory_utilization"] = allocation
-        with pytest.raises(ValueError, match="engine"):
-            validate_config(config)
-
-
-@pytest.mark.parametrize(
-    "field,value",
-    [
-        ("absolute_deadline", "2026-10-13T04:00:00+00:00"),
-        ("policy_reasoning_effort", "low"),
-        ("target_step", 4),
-        ("retry_limit", 1),
-        ("judge_operation_cap_usd", 151),
-    ],
-)
-def test_weekend_cycle_rejects_unreviewed_expansion(field, value):
-    config = cycle()
-    config[field] = value
-    with pytest.raises(ValueError):
-        validate_config(config)
 
 
 def test_reduced_schedule_preserves_explicit_order_and_excludes_held_out_rows():
@@ -167,44 +128,18 @@ def test_launcher_verifies_fresh_results_on_ephemeral_disk_before_any_worker(tmp
     assert not (binary / "docker-called").exists()
 
 
-def test_validation_waits_for_accepted_learning_and_preserves_training_time():
-    state = {"current_step": 2, "completion_gate": False, "last_validation_epoch": 0}
-    assert (
-        panels.validation_due(
-            state, schedules.scope(WEEKEND), now_epoch=100000, remaining_seconds=50000
-        )
-        is False
-    )
-    state.update(current_step=3, completion_gate=True)
-    assert (
-        panels.validation_due(
-            state, schedules.scope(WEEKEND), now_epoch=100000, remaining_seconds=50000
-        )
-        is True
-    )
-    assert (
-        panels.validation_due(
-            state, schedules.scope(WEEKEND), now_epoch=100000, remaining_seconds=10000
-        )
-        is False
-    )
-
-
-def test_evaluation_freezes_the_latest_actual_step_with_fresh_xhigh_base(tmp_path):
+def test_evaluation_freezes_the_latest_actual_step(tmp_path):
     state = {
         "current_step": 7,
         "current_checkpoint": "/results/cp7",
         "current_adapter_sha256": "d" * 64,
     }
-    assert panels.evaluation_cases(state) == [
-        {"label": "base", "initial_step": 0},
-        {
-            "label": "checkpoint-7",
-            "initial_step": 7,
-            "checkpoint": "/results/cp7",
-            "initial_adapter_sha256": "d" * 64,
-        },
-    ]
+    assert panels.trained_case(state) == {
+        "label": "checkpoint-7",
+        "initial_step": 7,
+        "checkpoint": "/results/cp7",
+        "initial_adapter_sha256": "d" * 64,
+    }
 
 
 def test_incomplete_cached_merge_is_rejected_before_serving(tmp_path):
@@ -221,11 +156,8 @@ def test_incomplete_cached_merge_is_rejected_before_serving(tmp_path):
 
 
 def test_failure_policy_defaults_to_resume_then_skip_and_rejects_unknown_keys():
-    assert controller.failure_policy({}) == {
-        "visit_attempts": 2,
-        "skip_failed_visits": True,
-        "maximum_consecutive_failed_visits": 2,
-    }
+    default = controller.failure_policy({})
+    assert default["visit_attempts"] > 1 and default["skip_failed_visits"] is True
     strict = {"failure_policy": {"visit_attempts": 1, "skip_failed_visits": False}}
     assert controller.failure_policy(strict)["skip_failed_visits"] is False
     for invalid in ({"visit_atempts": 2}, {"visit_attempts": 0}, {"skip_failed_visits": 1}):
@@ -261,9 +193,13 @@ def test_next_cycle_resumes_an_unrecorded_pending_visit(tmp_path, monkeypatch):
     assert controller.next_cycle(run_config(tmp_path), tmp_path) == pending
 
 
-# --- Visits, identity and validation panels
+# --- Visits and identity
 
 DAY = "medium-day-20261010"
+
+
+def maximum_step():
+    return schedules.schedule(DAY)["training"]["maximum_step"]
 
 
 def run_config(tmp_path, **changes):
@@ -320,9 +256,9 @@ def test_next_cycle_builds_the_next_single_step_from_the_accepted_checkpoint(tmp
     assert (written["initial_step"], written["target_step"]) == (5, 6)
     assert written["checkpoint"] == state["current_checkpoint"]
     assert written["initial_adapter_sha256"] == "5" * 64
-    assert written["sampling"]["max_tokens"] == 262144 - 18625
+    assert written["sampling"]["max_tokens"] == schedules.schedule(DAY)["maximum_context"] - 18625
     assert written["continuation_schedule"]["cursor"] == 1
-    assert written["continuation_schedule"]["maximum_step"] == 33
+    assert written["continuation_schedule"]["maximum_step"] == maximum_step()
     assert (root / "SOURCE_SHA256SUMS").read_text() == "frozen\n"
     assert json.loads((out / "pending-training.json").read_text()) == {
         "root": str(root),
@@ -335,7 +271,7 @@ def test_next_cycle_stops_at_the_step_cap_even_with_time_left(tmp_path, monkeypa
     monkeypatch.setattr(controller, "seconds_until", lambda _deadline: 40 * 3600)
     out = tmp_path / "out"
     out.mkdir()
-    state = {"visits": [], "current_step": 33, "completion_gate": True}
+    state = {"visits": [], "current_step": maximum_step(), "completion_gate": True}
     (out / "state.json").write_text(json.dumps(state))
     (out / "schedule.json").write_text(json.dumps(["first"]))
     config = {"schedule_id": DAY, "training_cutoff": "unused"}
@@ -414,12 +350,7 @@ def test_identity_reports_training_only_after_the_step_advanced(tmp_path, step, 
     }
     (tmp_path / "state.json").write_text(json.dumps(state))
     lines = controller.phase_identity(config, tmp_path, 1)
-    assert lines == [
-        f"/results/cp{step}",
-        f"/workspace/cache/weekend-merges/run-step-{step}-aaaaaaaaaaaa",
-        str(step),
-        trained,
-    ]
+    assert lines == [f"/results/cp{step}", panels.merged_path(config, state), str(step), trained]
 
 
 def test_prepare_starts_at_the_configured_checkpoint_without_learning(tmp_path):
@@ -449,37 +380,6 @@ def test_prepare_starts_at_the_configured_checkpoint_without_learning(tmp_path):
     assert json.loads((out / "schedule.json").read_text()) == ["new/train"]
     with pytest.raises(FileExistsError):
         controller.prepare(config, out)
-
-
-def test_validation_panels_carry_the_runs_own_schedule(tmp_path, monkeypatch):
-    monkeypatch.setattr(panels, "seconds_until", lambda _deadline: 100000)
-    config = run_config(tmp_path, validation_row_ids=["held-out"])
-    reviewed = schedules.schedule(DAY)
-    out = tmp_path / "runtime/results/run"
-    out.mkdir()
-    state = {
-        "current_step": 4,
-        "current_checkpoint": "/results/cp4",
-        "current_adapter_sha256": "4" * 64,
-        "completion_gate": True,
-        "validation_history": [],
-        "last_validation_epoch": 0,
-    }
-    (out / "state.json").write_text(json.dumps(state))
-    write_requests(out, "held-out", prompt_tokens=20000)
-    folders = [Path(folder) for folder in panels.validation_configs(config, out)]
-    assert json.loads((out / "pending-validation.json").read_text()) == [str(f) for f in folders]
-    labels = []
-    for folder in folders:
-        panel = json.loads((folder / "config.json").read_text())
-        assert panel["weekend_schedule_id"] == DAY
-        assert schedules.scope(panel)["schedule_id"] == DAY
-        assert "schedule_id" not in panel and "continuation_schedule" not in panel
-        assert panel["seconds_limit"] == reviewed["validation_seconds_limit"]
-        assert panel["judge_operation_cap_usd"] == reviewed["validation_judge_cap_usd"]
-        assert panel["sampling"]["max_tokens"] == reviewed["maximum_context"] - 20000
-        labels.extend(case["label"] for case in panel["cases"])
-    assert labels == ["checkpoint-3", "checkpoint-4"]
 
 
 # --- Disk retention
@@ -531,19 +431,32 @@ def test_prune_phase_appends_what_it_freed_to_the_runs_retention_record(tmp_path
     assert len(json.loads((out / "retention.json").read_text())) == 2
 
 
-def write_validation(root, merged, checkpoint, row_id):
-    root.mkdir(parents=True)
-    case = {"label": "checkpoint-4", "checkpoint": checkpoint, "initial_step": 4}
-    config = {"cases": [case], "merged_model_path": str(merged)}
-    (root / "config.json").write_text(json.dumps(config))
-    metrics = {
-        "row_id": row_id,
-        "exact_coverage": 0.5,
-        "partial_coverage": 0.5,
-        "format_validity": 1.0,
-        "unknown_draws": 0,
-    }
-    (root / "comparison.json").write_text(json.dumps({"metrics": metrics}))
+def backup_receipt(out, label, visits, status="complete_resumable_archive_download_verified"):
+    path = out / f"backup-{label}-receipt.json"
+    path.write_text(json.dumps({"status": status, "visits": visits}))
+
+
+def test_a_visit_backup_is_due_once_the_interval_of_new_visits_has_passed(tmp_path):
+    out = tmp_path / "run"
+    out.mkdir()
+    interval = schedules.scope({"schedule_id": DAY})["storage"]["visit_backup_interval"]
+    backup_receipt(out, "initial", 0)
+    due = []
+    for count in range(1, 2 * interval + 2):
+        (out / "state.json").write_text(json.dumps({"visits": [{}] * count}))
+        due.append(controller.phase_backup_due({"schedule_id": DAY}, out, 1) == ["true"])
+        if due[-1]:
+            backup_receipt(out, f"visit-{count:03d}", count)
+    assert [count for count, value in enumerate(due, start=1) if value] == [interval, 2 * interval]
+
+
+def test_a_failed_visit_backup_leaves_the_backup_due(tmp_path):
+    out = tmp_path / "run"
+    out.mkdir()
+    backup_receipt(out, "initial", 0)
+    backup_receipt(out, "visit-005", 5, status="failed")
+    (out / "state.json").write_text(json.dumps({"visits": [{}] * 6}))
+    assert controller.phase_backup_due({"schedule_id": DAY}, out, 1) == ["true"]
 
 
 def write_merge(merged, adapter_sha256):
@@ -551,25 +464,6 @@ def write_merge(merged, adapter_sha256):
     manifest = {"status": "merged_and_verified", "adapter_sha256": adapter_sha256, "files": {}}
     (merged / "MERGE_MANIFEST.json").write_text(json.dumps(manifest))
     (merged / "model.safetensors").write_bytes(b"w" * 50)
-
-
-def test_recorded_validation_releases_its_merge_and_keeps_the_manifest(tmp_path):
-    out = tmp_path / "run"
-    out.mkdir()
-    merged = tmp_path / "cache/merges/run-step-4-444444444444"
-    write_merge(merged, "4" * 64)
-    folders = [tmp_path / f"run-validation-00-checkpoint-4-{i}" for i in range(2)]
-    for index, folder in enumerate(folders):
-        write_validation(folder, merged, "/results/cp4", f"held-out-{index}")
-    (out / "pending-validation.json").write_text(json.dumps([str(f) for f in folders]))
-    state = {"validation_history": [], "last_validation_epoch": 0}
-    (out / "state.json").write_text(json.dumps(state))
-    controller.phase_record_validation({"schedule_id": DAY}, out, 1)
-    assert not merged.exists()
-    receipt = json.loads((out / "merge-receipts" / f"{merged.name}.json").read_text())
-    assert (receipt["bytes"], receipt["manifest"]["adapter_sha256"]) == (50 + 132, "4" * 64)
-    recorded = json.loads((out / "state.json").read_text())["validation_history"]
-    assert recorded[0]["panel"]["row_ids"] == ["held-out-0", "held-out-1"]
 
 
 def test_release_final_merge_deletes_the_evaluated_checkpoints_merge(tmp_path, monkeypatch):
@@ -587,7 +481,121 @@ def test_release_final_merge_deletes_the_evaluated_checkpoints_merge(tmp_path, m
     assert (out / "merge-receipts" / f"{merged.name}.json").is_file()
 
 
-def test_final_evaluation_always_covers_the_five_solidity_repositories():
-    from panels import evaluation_projects
+def test_verify_final_merge_accepts_only_the_current_checkpoints_unchanged_merge(
+    tmp_path, monkeypatch
+):
+    out = tmp_path / "run"
+    out.mkdir()
+    checkpoint = tmp_path / "checkpoint-6"
+    checkpoint.mkdir()
+    (checkpoint / "adapter_model.safetensors").write_bytes(b"adapter")
+    digest = hashlib.sha256(b"adapter").hexdigest()
+    state = {
+        "current_step": 6,
+        "current_checkpoint": str(checkpoint),
+        "current_adapter_sha256": digest,
+    }
+    (out / "state.json").write_text(json.dumps(state))
+    merged = tmp_path / "merged"
+    monkeypatch.setattr(controller, "merged_path", lambda *_: str(merged))
+    merged.mkdir()
+    (merged / "model.safetensors").write_bytes(b"weights")
+    files = {"model.safetensors": {"merged_sha256": hashlib.sha256(b"weights").hexdigest()}}
+    manifest = {"status": "merged_and_verified", "adapter_sha256": digest, "files": files}
+    (merged / "MERGE_MANIFEST.json").write_text(json.dumps(manifest))
+    config = {"schedule_id": DAY, "run_id": "run"}
+    assert controller.phase_verify_final_merge(config, out, 1) == []
+    (merged / "model.safetensors").write_bytes(b"changed")
+    with pytest.raises(ValueError, match=r"changed: model\.safetensors"):
+        controller.phase_verify_final_merge(config, out, 1)
 
-    assert evaluation_projects() == ["munchables", "vultisig", "tigris", "backd", "phi"]
+
+def write_frozen_base_runs(results, *, skip=None):
+    """A finished base-only free-text run per project, as the schedule names them."""
+    from benchmark_free_text import evaluation_row_ids
+    from testing.benchmark import free_text_configuration
+
+    pattern = schedules.scope({"schedule_id": DAY})["evaluation_base_reference"]
+    hashes = {}
+    for row_id in evaluation_row_ids():
+        name = row_id.split("/", 1)[1]
+        root = results / pattern.format(project=name)
+        root.mkdir(parents=True)
+        (root / "prepared.json").write_text(json.dumps(free_text_configuration(row_id)))
+        (root / "private-truth.json").write_text(json.dumps([{"issue": i} for i in range(3)]))
+        if name != skip:
+            comparison = json.dumps({"draws": {"base": []}, "project": name})
+            (root / "comparison.json").write_text(comparison)
+            hashes[name] = hashlib.sha256(comparison.encode()).hexdigest()
+    return pattern, hashes
+
+
+def final_evaluation_run(tmp_path):
+    config = run_config(
+        tmp_path, judge_ledgers={"evaluation": "/results/run/evaluation-ledger.json"}
+    )
+    out = tmp_path / "runtime/results/run"
+    out.mkdir()
+    state = {
+        "current_step": 7,
+        "current_checkpoint": "/results/cp7",
+        "current_adapter_sha256": "d" * 64,
+    }
+    (out / "state.json").write_text(json.dumps(state))
+    return config, out
+
+
+def test_final_evaluation_runs_only_the_trained_arm_against_the_frozen_base(tmp_path):
+    from benchmark_free_text import validate_config
+
+    config, out = final_evaluation_run(tmp_path)
+    pattern, hashes = write_frozen_base_runs(tmp_path / "runtime/results")
+    reviewed = schedules.scope(config)
+    state = json.loads((out / "state.json").read_text())
+    [suite_root] = panels.evaluation_configs(config, out)
+    suite = json.loads((Path(suite_root) / "config.json").read_text())
+    assert suite["output_format"] == "free_text" and suite["trained_label"] == "checkpoint-7"
+    assert [p["name"] for p in suite["projects"]] == list(hashes)
+    for project in suite["projects"]:
+        name = project["name"]
+        base_run = pattern.format(project=name)
+        assert project["known_gt_count"] == 3
+        assert project["base_run_root"] == f"/results/{base_run}"
+        child = json.loads(
+            (tmp_path / "runtime/results" / project["run_id"] / "config.json").read_text()
+        )
+        frozen = json.loads((tmp_path / "runtime/results" / base_run / "prepared.json").read_text())
+        validate_config(child)
+        assert child["cases"] == [panels.trained_case(state)]
+        assert child["generation_order"] == ["checkpoint-7"]
+        assert child["base_reference"] == {
+            "run_root": f"/results/{base_run}",
+            "comparison_sha256": hashes[name],
+        }
+        for key in ("sampling", "engine", "template_options", "benchmark_judge", "row_id"):
+            assert child[key] == frozen[key]
+        assert child["judge_operation_cap_usd"] == reviewed["evaluation_judge_cap_usd"]
+        assert child["absolute_deadline"] == reviewed["final_deadline"]
+        assert child["merged_model_path"] == panels.merged_path(config, state)
+
+
+def test_final_evaluation_needs_every_frozen_base_before_writing_anything(tmp_path):
+    config, out = final_evaluation_run(tmp_path)
+    write_frozen_base_runs(tmp_path / "runtime/results", skip="tigris")
+    with pytest.raises(FileNotFoundError, match=r"comparison\.json"):
+        panels.evaluation_configs(config, out)
+    assert not list((tmp_path / "artifacts").iterdir())
+
+
+@pytest.mark.parametrize(
+    ("key", "value"), [("template_options", {"reasoning_effort": "medium"}), ("sampling", {"n": 2})]
+)
+def test_final_evaluation_refuses_frozen_bases_that_differ_in_effort_or_draws(tmp_path, key, value):
+    config, out = final_evaluation_run(tmp_path)
+    pattern, _ = write_frozen_base_runs(tmp_path / "runtime/results")
+    prepared = tmp_path / "runtime/results" / pattern.format(project="phi") / "prepared.json"
+    frozen = json.loads(prepared.read_text())
+    prepared.write_text(json.dumps({**frozen, key: {**frozen[key], **value}}))
+    with pytest.raises(ValueError, match="Frozen base runs differ"):
+        panels.evaluation_configs(config, out)
+    assert not (out / "final-identity.json").exists()

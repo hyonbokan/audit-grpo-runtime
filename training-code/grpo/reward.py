@@ -16,7 +16,6 @@ from scripts.finetuning.tools.reward_schema_candidate import MatchResponse, scor
 from scripts.finetuning.tools.training_rows import render_training_row
 
 from grpo.budget import BudgetExhausted
-from grpo.samples import capture_sample as capture_sample
 from grpo.samples import write_new
 
 

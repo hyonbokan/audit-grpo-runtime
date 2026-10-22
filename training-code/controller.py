@@ -12,7 +12,8 @@ from pathlib import Path
 from typing import Any
 
 from frozen_requests import extend_request, rerender_request
-from panels import evaluation_configs, merged_path, record_validation, validation_configs
+from hf_backup import backed_up_visits
+from panels import evaluation_configs, merged_path, verify_merge
 from progress import training_order, verify_dataset
 from retention import prune_visits, release_merge, require_free_space
 from runtime_io import new_result_dir, read_json, save_json, seconds_until, sha256_file, utc_now
@@ -80,19 +81,13 @@ def phase_record_failure(config: dict, out: Path, attempts: int) -> list[str]:
     return [json.dumps(state["visits"][-1])]
 
 
-def phase_validation(config: dict, out: Path, _attempts: int) -> list[str]:
-    return validation_configs(config, out)
-
-
-def phase_record_validation(config: dict, out: Path, _attempts: int) -> list[str]:
-    record_validation(config, out)
-    merges = {
-        read_json(Path(f) / "config.json")["merged_model_path"]
-        for f in read_json(out / "pending-validation.json")
-    }
-    for merged in sorted(merges):
-        release_merge(Path(merged), out / "merge-receipts" / f"{Path(merged).name}.json")
-    return []
+def phase_backup_due(config: dict, out: Path, _attempts: int) -> list[str]:
+    """Whether enough visits passed since the last verified backup to upload another."""
+    interval = scope(config)["storage"]["visit_backup_interval"]
+    if type(interval) is not int or interval < 1:
+        raise ValueError("storage.visit_backup_interval must be an integer of at least 1")
+    visits = len(read_json(out / "state.json")["visits"])
+    return [str(visits - backed_up_visits(out) >= interval).lower()]
 
 
 def phase_prune(config: dict, out: Path, _attempts: int) -> list[str]:
@@ -104,6 +99,13 @@ def phase_prune(config: dict, out: Path, _attempts: int) -> list[str]:
     record.append({"utc": utc_now().isoformat(), "removed": removed})
     save_json(path, record)
     return [json.dumps({"files": len(removed), "bytes": sum(e["bytes"] for e in removed)})]
+
+
+def phase_verify_final_merge(config: dict, out: Path, _attempts: int) -> list[str]:
+    """Refuse a cached final merge that is incomplete or holds other weights."""
+    state = read_json(out / "state.json")
+    verify_merge(Path(merged_path(config, state)), Path(state["current_checkpoint"]))
+    return []
 
 
 def phase_release_final_merge(config: dict, out: Path, _attempts: int) -> list[str]:
@@ -134,11 +136,11 @@ PHASES = {
     "next": phase_next,
     "record": phase_record,
     "record-failure": phase_record_failure,
-    "validation": phase_validation,
-    "record-validation": phase_record_validation,
+    "backup-due": phase_backup_due,
     "prune": phase_prune,
     "identity": phase_identity,
     "evaluation": phase_evaluation,
+    "verify-final-merge": phase_verify_final_merge,
     "release-final-merge": phase_release_final_merge,
 }
 
@@ -191,7 +193,6 @@ def prepare(config: dict, out: Path) -> None:
         }
     save_json(out / "requests-manifest.json", requests)
     save_json(out / "schedule.json", reviewed_training_order(config, manifest["roles"]["train"]))
-    now = utc_now()
     save_json(
         out / "state.json",
         {
@@ -200,9 +201,7 @@ def prepare(config: dict, out: Path) -> None:
             "current_checkpoint": config["initial_checkpoint"],
             "current_adapter_sha256": config["initial_adapter_sha256"],
             "completion_gate": False,
-            "validation_history": [],
-            "started_utc": now.isoformat(),
-            "last_validation_epoch": now.timestamp(),
+            "started_utc": utc_now().isoformat(),
         },
     )
 

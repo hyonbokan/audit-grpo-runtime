@@ -40,7 +40,6 @@ def test_failed_update_reuses_rollout_and_grades_and_archives_the_rest(tmp_path)
         "rollout": True,
         "grading": True,
         "update": False,
-        "refresh": False,
     }
     archive = archive_failed_attempt(root, CONFIG)
     assert {p.name for p in archive.iterdir()} == {
@@ -92,3 +91,15 @@ def test_cli_runs_with_only_the_standard_library(tmp_path):
     ).stdout
     assert "reusing ['rollout']" in output
     assert len(list((root / "attempts").iterdir())) == 1
+
+
+@pytest.mark.parametrize(("phase", "expected"), [("rollout", 0), ("update", 1), ("grading", 2)])
+def test_complete_cli_reports_whether_a_phase_receipt_is_complete(tmp_path, phase, expected):
+    root = cycle(tmp_path, rollout="versioned_rollout_saved", update="failed")
+    script = Path(__file__).with_name("cycle_recovery.py")
+    result = subprocess.run(
+        [sys.executable, "-I", str(script), "complete", str(root), phase],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == expected, result.stderr

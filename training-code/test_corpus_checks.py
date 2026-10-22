@@ -38,7 +38,7 @@ def candidate():
     }
 
 
-def test_split_isolation_rejects_family_and_application_duplicates_but_not_vendor():
+def test_split_isolation_rejects_shared_application_files_and_families():
     a, b = candidate(), candidate()
     b.update(
         row_id="another/all-scope",
@@ -46,7 +46,7 @@ def test_split_isolation_rejects_family_and_application_duplicates_but_not_vendo
         family_ids=["another"],
         split="evaluation",
     )
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="application overlap"):
         corpus_checks.check_isolation([a, b])
     b["source_files"][0] = {
         "path": "Other.sol",
@@ -56,7 +56,7 @@ def test_split_isolation_rejects_family_and_application_duplicates_but_not_vendo
     b["targets"][0]["archive_id"] = 2
     corpus_checks.check_isolation([a, b])
     b["family_ids"] = a["family_ids"]
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="family overlap"):
         corpus_checks.check_isolation([a, b])
 
 

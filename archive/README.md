@@ -4,7 +4,9 @@ Code from finished experiments, moved out of `training-code/` on 2026-10-13. Not
 `training-code/` imports it, the launchers do not mount it, and its tests are not run.
 Imports here still name the old layout (`scripts.finetuning.training`, `experiment`,
 `benchmark`), so files do not run as-is. The local git baseline commit of
-`audit-grpo-runtime/` has the runnable originals.
+`audit-grpo-runtime/` has the runnable originals. Files archived on 2026-10-22 keep that day's
+imports; code removed from a module that stays maintained is named below with the last commit
+that has it (`git show 82d7ad1:training-code/<path>`).
 
 | Path | Was used for |
 |---|---|
@@ -15,4 +17,13 @@ Imports here still name the old layout (`scripts.finetuning.training`, `experime
 | `corpus.py`, `corpus_build.py`, `corpus_export.py`, `corpus_dependencies.py` | LLM-reviewed corpus pipeline and npm/git dependency recovery. |
 | `inference/benchmark.py` | Standalone short-generation benchmark CLI. |
 | `inference/sampling_check.py`, `inference/check_sampling.py`, `inference/acceptance.py` | One-time sampler acceptance probes. |
+| `inference/evaluation.py`, `evaluation_scope.json`, `fixtures/evaluation.json` | Kindless matched held-out comparison of two checkpoints on a policy row, graded by the reward worker. |
+| `repeat_evaluation.py`, `inference/heal_samples.py` | Fresh-seed repeats of the Markdown evaluation; symmetric parser healing of JSON/Markdown answers. |
+| `inference/test_weekend_evaluation.py`, `inference/test_continuation_benchmark.py` | Tests of the full-native-context ("weekend") and continuation-reference evaluations. |
+| Removed at `82d7ad1` from `inference/benchmark_evaluation.py`, `benchmark_contract.py`, `benchmark_judge.py`, `benchmark_suite.py`, `launch-evaluation.sh`, `native_context_scope.json` | Solidity 1 evaluations with JSON or Markdown answers, the full-native-context profile, continuation references to a saved comparison, conditional (fence-removed) grading, Markdown repeats and reused suite comparisons. The free-text suite replaced them on 2026-10-21. |
+| Removed at `92f02a6` from `cycle_contract.py`, `cycle_scope.json` | Cycles outside `schedules.json`: the unscheduled pilot cycle (step 1 to 2) and the `continuation-expanded`, `audited-xhigh` and `full-training` families of 2026-10-09. |
+| `inference/panel_evaluation.py` | Validation panels during training (`grpo_held_out_panel`); validation was dropped on 2026-10-22, so a run evaluates only its final checkpoint. |
+| `select_groups.py` | Seeded project schedule for an unattended multi-group run; nothing called it. |
+| `grpo/sampling.py`, `inference/sampler_compat.py` (all but the vLLM version check, now in `adapter_compat.py`) | Native top-k/top-p filter, its token recorder and the scoped vLLM sampler hooks. Corrected replay uses vLLM's own sampler; only archived probes installed the hooks. |
+| Removed at `ec5368b` from `grpo/measurement.py` | `compare` and its CLI: the equal-budget base/tuned decision used by the archived `inference/evaluation.py`. |
 | `provenance/` | Initial extraction map, its hashes and the implementation diff against it (local only, git-ignored: it holds rental paths). |

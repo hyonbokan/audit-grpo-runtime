@@ -23,34 +23,6 @@ def test_policy_dataset_excludes_private_targets_and_rejects_changed_prompt(work
         reward.validate_policy(changed, private[row["row_id"]])
 
 
-class Tokenizer:
-    def decode(self, ids, **_kwargs):
-        return (
-            {
-                7: "<think>Guard absent; caller drains balance.</think>",
-                8: '{"findings":[]}',
-                9: "<|im_end|>",
-            }[ids[0]]
-            if len(ids) == 1
-            else ('<think>Guard absent; caller drains balance.</think>{"findings":[]}<|im_end|>')
-        )
-
-
-def test_sample_keeps_original_tokens_probabilities_and_reasoning_final_join():
-    from grpo import reward
-
-    sample = reward.capture_sample(
-        "row", [1, 2], [7, 8, 9], [-0.1, -0.2, -0.3], Tokenizer(), finish_reason="stop"
-    )
-    assert sample["completion_ids"] == [7, 8, 9]
-    assert sample["logprobs"] == [-0.1, -0.2, -0.3]
-    assert sample["reasoning"] == "Guard absent; caller drains balance."
-    assert sample["final_text"] == '{"findings":[]}'
-    assert sample["raw_text"].endswith("<|im_end|>")
-    with pytest.raises(ValueError, match="token"):
-        reward.capture_sample("row", [1], [7, 8], [-0.1], Tokenizer(), finish_reason="stop")
-
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize("effort", ("medium", "high"))
 async def test_scalar_uses_structured_description_and_duplicate_raw_count(

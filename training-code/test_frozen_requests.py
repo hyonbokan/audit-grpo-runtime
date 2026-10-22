@@ -9,9 +9,12 @@ import pytest
 
 import frozen_requests
 
+SCOPE = json.loads((Path(__file__).with_name("cycle_scope.json")).read_text())
+# Follows the reviewed model pin, so a new revision is tested rather than skipped.
 PINNED_TOKENIZER = Path(
-    "/workspace/cache/huggingface/hub/models--Qwen--Qwen3.8-27B/snapshots/"
-    "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0"
+    "/workspace/cache/huggingface/hub/models--{}/snapshots/{}".format(
+        SCOPE["model_id"].replace("/", "--"), SCOPE["model_revision"]
+    )
 )
 
 

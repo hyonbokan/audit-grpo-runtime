@@ -119,9 +119,10 @@ def thin_fixture(tmp_path, monkeypatch, visits=3):
 
     def build(kind):
         target = tmp_path / f"bundle-{kind}"
-        module.create_bundle(
+        metadata = module.create_bundle(
             config, run, target, tmp_path / "source", tmp_path / "workspace", kind=kind
         )
+        (tmp_path / f"metadata-{kind}.json").write_text(json.dumps(metadata))
         return {str(p.relative_to(target)) for p in target.rglob("*") if p.is_file()}
 
     return module, build
@@ -134,16 +135,22 @@ def test_visit_labels_are_thin_and_everything_else_is_full(tmp_path):
         assert module.backup_kind(label) == "full"
 
 
-def test_thin_visit_backup_holds_one_adapter_and_only_the_newest_visit_record(
+def test_thin_visit_backup_holds_one_adapter_and_the_visits_since_the_last_backup(
     tmp_path, monkeypatch
 ):
     _module, build = thin_fixture(tmp_path, monkeypatch)
+    run = tmp_path / "results/weekend"
+    receipt = {"status": "complete_resumable_archive_download_verified", "visits": 1}
+    (run / "backup-visit-weekend-visit-001-receipt.json").write_text(json.dumps(receipt))
+    failed = {"status": "failed", "visits": 2}
+    (run / "backup-visit-weekend-visit-002-receipt.json").write_text(json.dumps(failed))
     files = build("thin")
     assert (
         tmp_path / "bundle-thin/checkpoint/adapter_model.safetensors"
     ).read_bytes() == b"adapter"
-    assert "visits/003/grading/rewards.json" in files
-    assert not {name for name in files if name.startswith(("visits/001", "visits/002"))}
+    assert {"visits/002/grading/rewards.json", "visits/003/grading/rewards.json"} <= files
+    assert not {name for name in files if name.startswith("visits/001")}
+    assert json.loads((tmp_path / "metadata-thin.json").read_text())["visits"] == 3
     assert not {n for n in files if n.endswith(("optimizer.pt", "scheduler.pt", "rng_state.pth"))}
     assert sorted(n for n in files if n.endswith("adapter_model.safetensors")) == [
         "checkpoint/adapter_model.safetensors"

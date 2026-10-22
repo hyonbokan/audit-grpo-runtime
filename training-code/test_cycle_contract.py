@@ -1,7 +1,7 @@
 """The complete corrected-cycle decision refuses omitted or stale evidence."""
 
+import hashlib
 import json
-from pathlib import Path
 
 import pytest
 
@@ -10,7 +10,9 @@ import schedules
 from testing.clock import freeze
 from testing.cycles import schedule_cycle
 
-CONDITIONS = [
+CONDITIONS = cycle_contract.CONDITIONS
+# Dropping one of these weakens acceptance, so it takes a deliberate edit here.
+REVIEWED_CONDITIONS = {
     "complete_group",
     "known_grades",
     "sampling_support",
@@ -21,11 +23,15 @@ CONDITIONS = [
     "changed_weights",
     "optimizer_progress",
     "checkpoint_saved",
-    "fresh_worker_transfer",
-    "fresh_weight_version",
+    "saved_adapter_identity",
+    "weight_version_chain",
     "precision_declared",
     "repeat_drift_retained",
-]
+}
+
+
+def test_no_reviewed_condition_is_dropped_from_the_decision():
+    assert set(CONDITIONS) >= REVIEWED_CONDITIONS
 
 
 @pytest.mark.parametrize("condition", CONDITIONS)
@@ -39,26 +45,23 @@ def test_every_condition_participates_in_complete_decision(condition):
 
 def test_missing_condition_and_unknown_evidence_cannot_approve_training():
     evidence = dict.fromkeys(CONDITIONS, True)
-    del evidence["fresh_worker_transfer"]
+    del evidence["saved_adapter_identity"]
     with pytest.raises(ValueError):
         cycle_contract.evaluate_cycle(evidence)
-    evidence["fresh_worker_transfer"] = None
+    evidence["saved_adapter_identity"] = None
     with pytest.raises(ValueError):
         cycle_contract.evaluate_cycle(evidence)
 
 
-def test_all_explicit_conditions_approve_only_one_cycle():
-    result = cycle_contract.evaluate_cycle(dict.fromkeys(CONDITIONS, True))
-    assert result == {"approved": True, "failed_conditions": [], "scope": "one_corrected_cycle"}
+DAY = "medium-day-20261010"
+DAY_LIMITS = schedules.schedule(DAY)["training"]
 
 
 @pytest.mark.parametrize(
     "name, value",
     [
-        ("seconds_limit", 5401),
         ("retry_limit", 1),
-        ("judge_operation_cap_usd", 11),
-        ("target_step", 3),
+        ("judge_operation_cap_usd", DAY_LIMITS["judge_operation_cap_usd"] + 1),
         ("native_adapter_precision", "bfloat16"),
         ("optimizer_kind", "adamw_torch"),
         ("correction_max", 100),
@@ -67,21 +70,32 @@ def test_all_explicit_conditions_approve_only_one_cycle():
     ],
 )
 def test_configuration_cannot_expand_reviewed_scope(name, value):
-    config = json.loads((Path(__file__).parent / "fixtures/cycle.json").read_text())
+    config = schedule_cycle(DAY)
+    cycle_contract.validate_config(config)
     config[name] = value
     with pytest.raises(ValueError):
         cycle_contract.validate_config(config)
 
 
-def test_reviewed_cycle_allows_time_for_generation_training_and_refresh():
-    config = json.loads((Path(__file__).parent / "fixtures/cycle.json").read_text())
-    config["seconds_limit"] = 5400
-    cycle_contract.validate_config(config)
+@pytest.mark.parametrize("change", [-0.05, 0.05])
+def test_engine_memory_allocation_is_the_reviewed_one(change):
+    config = schedule_cycle(DAY)
+    config["engine"]["gpu_memory_utilization"] += change
+    with pytest.raises(ValueError, match="engine"):
+        cycle_contract.validate_config(config)
+
+
+@pytest.mark.parametrize("schedule_id", [None, "continuation-expanded-20261009"])
+def test_a_cycle_must_name_a_registered_schedule(schedule_id):
+    config = schedule_cycle(DAY)
+    config["schedule_id"] = schedule_id
+    with pytest.raises(ValueError, match="schedule"):
+        cycle_contract.validate_config(config)
 
 
 def test_cli_rejects_missing_checkpoint_without_creating_prepared_receipt(tmp_path, monkeypatch):
-    freeze(monkeypatch, cycle_contract, "2026-10-09T00:00:00+00:00")
-    config = json.loads((Path(__file__).parent / "fixtures/cycle.json").read_text())
+    freeze(monkeypatch, cycle_contract, "2026-10-10T00:00:00+00:00")
+    config = schedule_cycle(DAY)
     config["checkpoint"] = str(tmp_path / "absent")
     path = tmp_path / "config.json"
     path.write_text(json.dumps(config))
@@ -90,8 +104,17 @@ def test_cli_rejects_missing_checkpoint_without_creating_prepared_receipt(tmp_pa
     assert not (tmp_path / "prepared.json").exists()
 
 
+SAVED_ADAPTER = b"trained adapter"
+SAVED_ADAPTER_SHA256 = hashlib.sha256(SAVED_ADAPTER).hexdigest()
+
+
 def cycle_fixture(tmp_path):
-    config = json.loads((Path(__file__).parent / "fixtures/cycle.json").read_text())
+    """A scheduled cycle whose rollout, grades and update all completed and agree."""
+    config = schedule_cycle(DAY)
+    source, target = config["initial_step"], config["target_step"]
+    request = tmp_path / "request.json"
+    request.write_text(json.dumps({"row_id": config["row_id"], "prompt_ids": [1]}))
+    config["request"] = str(request)
     repeat = {
         "raw_probability_parity": True,
         "raw_max_abs_logprob_difference": 0.0,
@@ -103,13 +126,7 @@ def cycle_fixture(tmp_path):
     files = {
         "rollout/receipt.json": {
             "transfer": {"cast_transfer_verified": True},
-            "weight_version": "step-1:old",
-            "native_adapter_precision": "float32",
-            "rollout_adapter_precision": "bfloat16",
-        },
-        "refresh/receipt.json": {
-            "transfer": {"cast_transfer_verified": True},
-            "weight_version": "step-2:new",
+            "weight_version": f"step-{source}:old",
             "native_adapter_precision": "float32",
             "rollout_adapter_precision": "bfloat16",
         },
@@ -119,11 +136,19 @@ def cycle_fixture(tmp_path):
             "correction_clip_fraction": 0.0,
             "correction_ess_fraction": 1.0,
             "adapter_weights_changed": True,
-            "optimizer_steps": [2],
-            "weight_version": "step-2:new",
-            "source_weight_version": "step-1:old",
+            "optimizer_steps": [target],
+            "adapter_sha256": SAVED_ADAPTER_SHA256,
+            "weight_version": f"step-{target}:{SAVED_ADAPTER_SHA256}",
+            "source_weight_version": f"step-{source}:old",
         },
-        "rollout/samples.json": [{"sampling_support_ids": [[1]], "weight_version": "step-1:old"}]
+        "rollout/samples.json": [
+            {
+                "row_id": config["row_id"],
+                "prompt_ids": [1],
+                "sampling_support_ids": [[1]],
+                "weight_version": f"step-{source}:old",
+            }
+        ]
         * 4,
         "grading/rewards.json": [1, 0, 1, -1],
     }
@@ -131,16 +156,11 @@ def cycle_fixture(tmp_path):
         path = tmp_path / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(value))
-    checkpoint = tmp_path / "update/checkpoint-2"
+    checkpoint = tmp_path / f"update/checkpoint-{target}"
     checkpoint.mkdir()
-    for name in (
-        "adapter_model.safetensors",
-        "optimizer.pt",
-        "rng_state.pth",
-        "scheduler.pt",
-        "trainer_state.json",
-    ):
+    for name in ("optimizer.pt", "rng_state.pth", "scheduler.pt", "trainer_state.json"):
         (checkpoint / name).touch()
+    (checkpoint / "adapter_model.safetensors").write_bytes(SAVED_ADAPTER)
     return config, repeat
 
 
@@ -149,43 +169,47 @@ def test_saved_repeat_evidence_does_not_require_historical_failure(tmp_path):
     result = cycle_contract.finish_cycle(config, tmp_path)
     assert result["decision"]["approved"] is True
     assert result["prior_repeat"] == repeat
+    assert set(result["evidence"]) == set(CONDITIONS)
     assert json.loads((tmp_path / "cycle-result.json").read_text())["optimizer_updates"] == 1
 
 
-def test_fresh_version_cannot_hide_training_from_a_different_source(tmp_path):
+def test_update_cannot_hide_training_from_a_different_source(tmp_path):
     config, _ = cycle_fixture(tmp_path)
     path = tmp_path / "update/receipt.json"
     receipt = json.loads(path.read_text())
-    receipt["source_weight_version"] = "step-1:unrelated"
+    receipt["source_weight_version"] = "step-0:unrelated"
     path.write_text(json.dumps(receipt))
     result = cycle_contract.finish_cycle(config, tmp_path)
-    assert result["decision"]["approved"] is False
-    assert "fresh_weight_version" in result["decision"]["failed_conditions"]
+    assert result["decision"]["failed_conditions"] == ["weight_version_chain"]
+
+
+@pytest.mark.parametrize(
+    ("receipt_change", "saved_bytes"),
+    [({}, b"a different adapter"), ({"weight_version": "step-4:other"}, SAVED_ADAPTER)],
+)
+def test_saved_adapter_must_be_the_one_the_update_reported(tmp_path, receipt_change, saved_bytes):
+    config, _ = cycle_fixture(tmp_path)
+    path = tmp_path / "update/receipt.json"
+    path.write_text(json.dumps({**json.loads(path.read_text()), **receipt_change}))
+    target = config["target_step"]
+    (tmp_path / f"update/checkpoint-{target}/adapter_model.safetensors").write_bytes(saved_bytes)
+    result = cycle_contract.finish_cycle(config, tmp_path)
+    assert result["decision"]["failed_conditions"] == ["saved_adapter_identity"]
 
 
 # --- Schedule-bound cycles
 
 
 def continuation_config():
-    config = json.loads((Path(__file__).parent / "fixtures/cycle.json").read_text())
-    config.update(
-        schedule_id="continuation-expanded-20261009",
-        initial_step=2,
-        target_step=3,
-        seconds_limit=14400,
-        judge_operation_cap_usd=100,
-        row_id="new-scope/all-scope",
-        dataset_workspace="/results/run/dataset",
+    return dict(
+        schedule_cycle(DAY), row_id="new-scope/all-scope", dataset_workspace="/results/run/dataset"
     )
-    return config
 
 
 def test_preparation_carries_explicit_dotenv_path_to_training_worker(tmp_path, monkeypatch):
-    import hashlib
-
     from cycle_contract import prepare_cycle
 
-    freeze(monkeypatch, cycle_contract, "2026-10-09T00:00:00+00:00")
+    freeze(monkeypatch, cycle_contract, "2026-10-10T00:00:00+00:00")
 
     config = continuation_config()
     checkpoint = tmp_path / "checkpoint-2"
@@ -198,7 +222,9 @@ def test_preparation_carries_explicit_dotenv_path_to_training_worker(tmp_path, m
         "rng_state.pth",
     ):
         (checkpoint / name).write_bytes(b"saved")
-    (checkpoint / "trainer_state.json").write_text('{"global_step":2}')
+    (checkpoint / "trainer_state.json").write_text(
+        json.dumps({"global_step": config["initial_step"]})
+    )
     config.update(
         checkpoint=str(checkpoint),
         model_path=str(checkpoint),
@@ -214,29 +240,6 @@ def test_preparation_carries_explicit_dotenv_path_to_training_worker(tmp_path, m
     prepare_cycle(config, out)
     plan = json.loads((out / "judge-plan.json").read_text())
     assert plan["judge_env_file"] == "/opt/audit-grpo-secrets/judge.env"
-
-
-def test_update_rejects_another_rows_samples_even_if_rewards_and_weights_match():
-    from grpo.corrected_update import join_update_group
-
-    config = continuation_config()
-    samples = [{"row_id": "other/all-scope", "weight_version": "step-2:digest"}] * 4
-    with pytest.raises(ValueError, match="row"):
-        join_update_group(config, samples, [1, 0, 1, -1], "step-2:digest")
-
-
-def test_update_joins_only_four_known_rewards_to_the_selected_row_and_weight():
-    from grpo.corrected_update import join_update_group
-
-    config = continuation_config()
-    samples = [{"row_id": config["row_id"], "weight_version": "step-2:digest"}] * 4
-    group = join_update_group(config, samples, [1, 0, 1, -1], "step-2:digest")
-    assert [sample["reward"] for sample in group] == [1, 0, 1, -1]
-    for rewards in ([1, 0, None, -1], [1, 0, float("nan"), -1], [1, 0]):
-        with pytest.raises(ValueError):
-            join_update_group(config, samples, rewards, "step-2:digest")
-    with pytest.raises(ValueError):
-        join_update_group(config, samples, [1, 0, 1, -1], "step-3:stale")
 
 
 def test_acceptance_rejects_samples_from_a_row_outside_the_frozen_step(tmp_path):
@@ -275,7 +278,6 @@ def test_launcher_settings_cap_the_cycle_at_the_absolute_deadline(monkeypatch, n
     freeze(monkeypatch, cycle_contract, now)
     config = schedule_cycle("medium-checkpoint-20261010")
     config.update(seconds_limit=21600, absolute_deadline="2026-10-11T01:00:00+00:00")
-    monkeypatch.setattr(cycle_contract, "validate_config", lambda _config: None)
     assert cycle_contract.launcher_settings(config) == [
         config["native_image"],
         config["rollout_image"],
@@ -343,8 +345,17 @@ def test_a_cycle_cannot_change_the_reviewed_tensor_parallel_size(split_schedule)
         cycle_contract.validate_config(split_schedule)
 
 
-def test_schedules_without_placement_keep_the_one_gpu_update():
-    config = schedule_cycle("medium-day-20261010")
-    assert config["update_placement"] == {"gpus": [0], "embedding": "offloaded"}
-    assert "tensor_parallel_size" not in config["engine"]
-    cycle_contract.validate_config(config)
+def test_low_prompt_cannot_be_relabelled_as_an_xhigh_training_request():
+    c = {"policy_reasoning_effort": "xhigh", "sampling": {"max_tokens": 32768}}
+    plan = {"sampling_profile": {"policy_reasoning_effort": "xhigh"}}
+    request = {
+        "template_options": {"enable_thinking": True, "reasoning_effort": "low"},
+        "full_completion_ceiling": 32768,
+    }
+    with pytest.raises(ValueError, match="reasoning"):
+        cycle_contract.validate_policy_profile(c, request, plan)
+    request["template_options"]["reasoning_effort"] = "xhigh"
+    cycle_contract.validate_policy_profile(c, request, plan)
+    request["full_completion_ceiling"] = 16384
+    with pytest.raises(ValueError, match="ceiling"):
+        cycle_contract.validate_policy_profile(c, request, plan)

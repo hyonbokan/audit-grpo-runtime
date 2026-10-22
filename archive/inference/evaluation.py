@@ -34,10 +34,7 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-EVALUATION_MODULES = {
-    "native_solidity_benchmark": "benchmark_evaluation",
-    "grpo_held_out_panel": "panel_evaluation",
-}
+EVALUATION_MODULES = {"native_solidity_benchmark": "benchmark_evaluation"}
 
 
 def launcher_settings(config: dict[str, Any]) -> list[str]:
@@ -63,11 +60,6 @@ def validate_evaluation_config(config: dict[str, Any]) -> None:
     kind = config.get("evaluation_kind")
     if kind is not None and kind not in EVALUATION_MODULES:
         raise ValueError(f"Unknown evaluation_kind {kind!r}; known: {sorted(EVALUATION_MODULES)}")
-    if config.get("evaluation_kind") == "grpo_held_out_panel":
-        from panel_evaluation import validate_panel_config
-
-        validate_panel_config(config)
-        return
     if config.get("evaluation_kind") == "native_solidity_benchmark":
         from benchmark_evaluation import validate_benchmark_config
 

@@ -9,7 +9,10 @@ run_root=$(realpath -s -- "${1:?$usage}")
 config=$(realpath -s -- "${2:?$usage}")
 resume=0
 if [[ "${3:-}" == --resume ]]; then resume=1; elif [[ -n "${3:-}" ]]; then echo "$usage" >&2; exit 2; fi
-[[ "$run_root" == "$runtime_root/results/"* && "$config" == "$run_root/"* ]]
+[[ "$run_root" == "$runtime_root/results/"* && "$config" == "$run_root/"* ]] || {
+  echo "The run must be under $runtime_root/results and its config inside the run directory" >&2
+  exit 2
+}
 if ((resume)); then
   # Resume training from state.json: accepted visits are kept and an unrecorded
   # pending visit continues in place. Finished training is not re-entered.
@@ -23,7 +26,10 @@ if ((resume)); then
     [[ ! -e "$run_root/$name" ]] || mv "$run_root/$name" "$run_root/controller-attempt-$attempt/"
   done
 else
-  [[ ! -e "$run_root/state.json" && ! -e "$run_root/launcher-exit.txt" ]]
+  [[ ! -e "$run_root/state.json" && ! -e "$run_root/launcher-exit.txt" ]] || {
+    echo "Run already started; continue it with --resume" >&2
+    exit 2
+  }
 fi
 cd -- "$code_root"
 sha256sum --check "$run_root/SOURCE_SHA256SUMS" > "$run_root/source-verification.log"
@@ -110,9 +116,7 @@ merge() {
   local adapter=$1 output=$2
   # Use only a complete matching merge; partial merge directories fail closed.
   if [[ -d "$CACHE/${output#/workspace/cache/}" ]]; then
-    docker run --rm --network none "${controller_mounts[@]}" -e "PYTHONPATH=$pythonpath" "$CPU_IMAGE" \
-      /opt/pilot/gpu/bin/python -c \
-      'import sys; from pathlib import Path; from panels import verify_merge; verify_merge(Path(sys.argv[1]),Path(sys.argv[2]))' "$output" "$adapter"
+    cpu verify-final-merge
     return
   fi
   event merge
@@ -166,34 +170,13 @@ while true; do
       break
     fi
     cpu record-failure --attempts "$attempts" >> "$run_root/training-record.log"
-    visit_backup "visit-$(basename -- "$folder")"
-    prune
-    continue
+  else
+    cpu record >> "$run_root/training-record.log"
   fi
-  cpu record >> "$run_root/training-record.log"
-  visit_backup "visit-$(basename -- "$folder")"
+  # Thin backups cover every visit since the last verified one, so skipping some loses none.
+  due=$(cpu backup-due)
+  [[ "$due" != true ]] || visit_backup "visit-$(basename -- "$folder")"
   prune
-  event validation-prepare
-  folders=$(cpu validation)
-  if [[ -n "$folders" ]]; then
-    validation_status=0
-    while IFS= read -r folder; do
-      checkpoint=$(json_value "$folder/config.json" cases 0 checkpoint)
-      merged=$(json_value "$folder/config.json" merged_model_path)
-      merge "$checkpoint" "$merged"
-      event validation
-      if ! bash "$code_root/launch-evaluation.sh" "$folder" "$folder/config.json" > "$folder/launcher.log" 2>&1; then
-        validation_status=1
-        break
-      fi
-    done <<< "$folders"
-    if ((validation_status)); then
-      event validation-failed
-      training_status=1
-      break
-    fi
-    cpu record-validation >> "$run_root/validation-record.log"
-  fi
 done
 printf '%s\n' "$training_status" > "$run_root/training-exit.txt"
 event training-finished

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# One corrected GRPO cycle: rollout, judge grading, native update, fresh-worker refresh, acceptance.
+# One corrected GRPO cycle: rollout, judge grading, native update, acceptance.
+# The next visit's rollout verifies vLLM's copy of the new adapter before it samples.
 set -euo pipefail
 
 code_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -9,14 +10,20 @@ run_root=$(realpath -s -- "${1:?$usage}")
 config_host=$(realpath -s -- "${2:?$usage}")
 resume=0
 if [[ "${3:-}" == --resume ]]; then resume=1; elif [[ -n "${3:-}" ]]; then echo "$usage" >&2; exit 2; fi
-[[ -f "$config_host" ]]
-[[ "$run_root" == "$runtime_root/results/"* && -d "$run_root" ]]
+[[ -f "$config_host" ]] || { echo "No config at $config_host" >&2; exit 2; }
+[[ "$run_root" == "$runtime_root/results/"* && -d "$run_root" ]] || {
+  echo "The cycle directory must exist under $runtime_root/results" >&2
+  exit 2
+}
 if ((resume)); then
   # Archive the failed attempt's logs and incomplete phases; completed phases are reused.
   [[ -f "$run_root/prepared.json" ]] || { echo "Resume requires a prepared cycle" >&2; exit 2; }
   python3 "$code_root/cycle_recovery.py" archive "$run_root" "$config_host"
 else
-  [[ ! -e "$run_root/prepared.json" ]]
+  [[ ! -e "$run_root/prepared.json" ]] || {
+    echo "Cycle already prepared; continue it with --resume" >&2
+    exit 2
+  }
   if [[ -e "$run_root/launcher-exit.txt" ]]; then
     # An earlier attempt stopped before preparation; keep its exit record as evidence.
     archive="$run_root/attempts/$(date -u +%Y%m%dT%H%M%SZ)-unprepared"
@@ -68,7 +75,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-start_deadline_timer "$timer" "$seconds" "$prefix-rollout" "$prefix-update" "$prefix-refresh"
+start_deadline_timer "$timer" "$seconds" "$prefix-rollout" "$prefix-update"
 
 gpu_phase() {
   local image=$1 memory=$2 gpus=$3 container="$prefix-$phase"
@@ -84,10 +91,7 @@ gpu_phase() {
   printf '%s\n' "$(( $(date +%s) - phase_started ))" > "$run_root/$phase-seconds.txt"
 }
 phase_complete() {
-  local receipt="$run_root/$1/receipt.json" expected=versioned_rollout_saved
-  [[ "$1" == update ]] && expected=corrected_update_saved
-  [[ -f "$receipt" ]] && python3 -c 'import json, sys
-sys.exit(json.load(open(sys.argv[1])).get("status") != sys.argv[2])' "$receipt" "$expected"
+  python3 "$code_root/cycle_recovery.py" complete "$run_root" "$1"
 }
 
 phase=rollout
@@ -117,10 +121,6 @@ fi
 phase=update
 phase_complete update || gpu_phase "$native_image" 128g "$update_gpus" -m grpo.corrected_update \
   --config "$config" --out "$container_out/update"
-
-phase=refresh
-phase_complete refresh || gpu_phase "$rollout_image" 64g "$rollout_gpus" /training-code/inference/rollout.py \
-  refresh --config "$config" --out "$container_out/refresh"
 
 phase=acceptance
 timeout --foreground "$(remaining)s" docker run --rm --network none \

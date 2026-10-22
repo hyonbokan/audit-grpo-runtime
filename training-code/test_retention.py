@@ -14,11 +14,10 @@ KEPT_FILES = ("adapter_model.safetensors", "adapter_config.json", "trainer_state
 def write_visit(results: Path, index: int, step: int | None) -> dict:
     """One recorded visit; `step` None is a skipped visit with no update."""
     root = results / f"run-visit-{index:03d}"
-    for phase in ("rollout", "refresh"):
-        mapped = root / phase / "mapped-adapter"
-        mapped.mkdir(parents=True)
-        (mapped / "adapter_model.safetensors").write_bytes(b"m" * 10)
-        (root / phase / "receipt.json").write_text("{}")
+    mapped = root / "rollout/mapped-adapter"
+    mapped.mkdir(parents=True)
+    (mapped / "adapter_model.safetensors").write_bytes(b"m" * 10)
+    (root / "rollout/receipt.json").write_text("{}")
     visit = {"root": str(root), "decision": "skip_no_reward_contrast"}
     if step is not None:
         checkpoint = root / "update" / f"checkpoint-{step}"
@@ -55,14 +54,13 @@ def test_prune_keeps_resume_state_for_the_latest_accepted_checkpoints_only(run):
     assert {entry["path"] for entry in removed} >= {str(oldest / name) for name in RESUME_FILES}
 
 
-def test_prune_removes_every_rollout_and_refresh_adapter_copy_but_keeps_receipts(run):
+def test_prune_removes_every_rollout_adapter_copy_but_keeps_receipts(run):
     results, state = run
     removed = retention.prune_visits(state, resume_states_kept=2)
     for index in range(1, 5):
-        for phase in ("rollout", "refresh"):
-            assert not (results / f"run-visit-{index:03d}/{phase}/mapped-adapter").exists()
-            assert (results / f"run-visit-{index:03d}/{phase}/receipt.json").is_file()
-    assert sum(entry["bytes"] for entry in removed) == 3 * 100 + 8 * 10
+        assert not (results / f"run-visit-{index:03d}/rollout/mapped-adapter").exists()
+        assert (results / f"run-visit-{index:03d}/rollout/receipt.json").is_file()
+    assert sum(entry["bytes"] for entry in removed) == 3 * 100 + 4 * 10
 
 
 def test_prune_never_removes_the_current_checkpoints_resume_state(run):

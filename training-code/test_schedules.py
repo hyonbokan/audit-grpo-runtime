@@ -46,11 +46,6 @@ def test_override_replaces_only_the_fields_it_names(registry):
     assert (long["maximum_context"], long["training"]["seconds_limit"]) == (2000, 600)
 
 
-def test_run_cycle_and_panel_configs_resolve_their_own_schedule(registry):
-    assert schedules.scope({"schedule_id": "short"})["schedule_id"] == "short"
-    assert schedules.scope({"weekend_schedule_id": "long"})["schedule_id"] == "long"
-
-
 @pytest.mark.parametrize("config", [{"schedule_id": "missing"}, {"weekend_schedule_id": "x"}, {}])
 def test_unregistered_or_unnamed_schedule_is_rejected(registry, config):
     with pytest.raises(ValueError, match=r"Unreviewed|names no schedule"):

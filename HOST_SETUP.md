@@ -115,7 +115,7 @@ cd training-code && uvx ruff check . && uvx ruff format --check .
 
 ## 7. GPU fit (needs approval)
 
-Run one complete cycle (update, refresh, acceptance) before any training schedule, and record
+Run one complete cycle (update, acceptance) before any training schedule, and record
 per-GPU peak memory, wall time and that the adapter changed. Inference fit does not prove
 training fit.
 
@@ -136,7 +136,8 @@ complete receipts and skips grading when `grading/rewards.json` exists.
    `setsid nohup bash training-code/launch-cycle.sh <run> <run>/config.json --resume &`.
    Keep monitors outside the run directory: `--resume` archives its `*.log`/`*.txt`.
 
-**Done when** `cycle-result.json` approves all 14 conditions.
+**Done when** `cycle-result.json` approves all 14 conditions. vLLM's copy of the new adapter is
+verified by the next rollout; a fit replay checks it by starting a rollout from the new checkpoint.
 
 ## Known problems
 

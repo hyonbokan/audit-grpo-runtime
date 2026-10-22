@@ -138,14 +138,8 @@ def test_saved_checkpoint_contains_changed_adapter_and_resumable_step_two(tmp_pa
     assert any(not torch.equal(before[key], after[key]) for key in before)
     assert receipt["optimizer_steps"] == [2]
     assert json.loads((destination / "trainer_state.json").read_text()) == {"global_step": 2}
-    assert json.loads((destination / "continuation_schedule.json").read_text()) == {
-        "kind": "constant_single_update",
-        "initial_step": 1,
-        "target_step": 2,
-        "learning_rate": 5e-6,
-        "warmup_steps": 0,
-        "updates_remaining": 0,
-    }
+    saved_schedule = json.loads((destination / "continuation_schedule.json").read_text())
+    assert saved_schedule == receipt["continuation_schedule"]
     saved = torch.load(destination / "optimizer.pt", weights_only=True)
     assert {int(value["step"].item()) for value in saved["state"].values()} == {2}
     assert (destination / "rng_state.pth").is_file()

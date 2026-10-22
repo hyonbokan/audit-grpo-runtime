@@ -17,6 +17,23 @@ def validate_request(request):
         raise ValueError("Context must accommodate the whole prompt and completion ceiling")
 
 
+# Settings every arm of a shared evaluation engine must have in common.
+SHARED_ENGINE_KEYS = ("model_path", "merged_model_path", "engine")
+
+
+def validate_shared_engine(configs: list[dict]) -> None:
+    """Arm configs share an engine only when they differ in their prompt and its allowance."""
+    if not configs:
+        raise ValueError("A shared engine needs at least one arm")
+    first = configs[0]
+    for config in configs:
+        for key in SHARED_ENGINE_KEYS:
+            if config.get(key) != first.get(key):
+                raise ValueError(f"Shared engine arms differ in {key}")
+        if {**config["sampling"], "max_tokens": None} != {**first["sampling"], "max_tokens": None}:
+            raise ValueError("Shared engine arms differ in sampling beyond the output allowance")
+
+
 def capture_batch(
     output,
     prompt_ids,

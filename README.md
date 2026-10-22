@@ -40,21 +40,21 @@ flowchart TD
     J --> D{"Reward contrast?"}
     D -->|"Update"| U["Native PyTorch update: corrected GRPO loss"]
     L["Unsloth + PEFT: model, LoRA and memory optimizations"] --> U
-    U --> F["Fresh vLLM worker: load and verify updated adapter"]
-    F --> A["Cycle acceptance checks"]
+    U --> A["Cycle acceptance checks"]
     A -->|"Pass"| K["Record accepted checkpoint"]
     D -->|"Skip when enabled"| S["Record visit; keep current checkpoint"]
-    K --> B["Visit backup and disk retention"]
+    K --> B["Periodic visit backup and disk retention"]
     S --> B
     B --> C
-    K --> V["Scheduled validation and final held-out evaluation"]
+    K --> V["Final evaluation against the frozen base"]
 ```
 
 The diagram shows the successful update and configured skip paths. Failed phases follow
 the bounded retry/skip policy described in the [training guide](training-code/README.md#resume-and-failures).
 Private ground truth goes to grading only; policy inputs never contain it. Cycle
-acceptance establishes update and transfer correctness; improvements in auditing
-performance must be measured separately through validation and held-out evaluation.
+acceptance establishes update correctness; the next visit's rollout verifies vLLM's copy of
+the new adapter before it samples. Improvements in auditing performance must be measured
+separately, by the held-out evaluation of the final checkpoint.
 
 ## Code architecture
 
@@ -64,13 +64,13 @@ launch instructions live in its [README](training-code/README.md).
 | Component | Implementation | Responsibility |
 |---|---|---|
 | Run orchestration | `launch-training.sh`, `controller.py`, `progress.py`, `schedules.py` | Choose visits, enforce the reviewed schedule, track the accepted policy and coordinate phases. |
-| One training cycle | `launch-cycle.sh`, `cycle_contract.py` | Run rollout, grading, update and refresh; check evidence before accepting an update. |
+| One training cycle | `launch-cycle.sh`, `cycle_contract.py` | Run rollout, grading and update; check evidence before accepting an update. |
 | Policy inputs | `audited_corpus.py`, `frozen_requests.py`, `grpo/policy_prompt.py` | Build the corpus and freeze the prompt rendering and tokens used in training. |
 | Generation and transfer | `inference/rollout.py`, `inference/adapter_compat.py` | Run vLLM, capture sampled tokens and log-probabilities, and verify the adapter loaded by inference workers. |
 | Reward and judging | `grpo/judge_worker.py`, `grpo/reward.py`, `grpo/budget.py`, `grpo/judge_cache.py` | Grade candidates, enforce the reward contract and paid-call limits, and cache completed judging. |
 | Policy update | `grpo/corrected_update.py`, `grpo/corrected_loss.py` | Calculate advantages and the corrected objective, backpropagate, and take the optimizer step. |
 | Model execution | `grpo/native_policy.py`, `grpo/placement.py`, `grpo/memory_compat.py` | Load through Unsloth, attach PEFT adapters, place layers and manage memory/offloading. |
-| Evaluation | `panels.py`, `inference/`, evaluation launchers | Run validation and held-out comparisons separately from training rewards. |
+| Evaluation | `panels.py`, `inference/`, evaluation launchers | Run held-out comparisons against the frozen base, separately from training rewards. |
 | Recovery and storage | `hf_backup.py`, `retention.py`, `runtime_io.py`, `provenance.py` | Verify backups, retain checkpoints, manage disk space, write receipts and freeze source identity. |
 
 The shell launchers sequence the work in containers; Python modules own the training

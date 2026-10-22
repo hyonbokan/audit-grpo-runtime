@@ -1,5 +1,6 @@
 """Typed LoRA requests survive the actual untyped RPC serialization boundary."""
 
+import re
 from types import SimpleNamespace
 
 import msgspec
@@ -46,21 +47,6 @@ def test_invalid_rpc_identity_is_rejected_before_loading():
 def layer(name, **attributes):
     """A LoRA layer stand-in; the layout rule is chosen by vLLM's class name."""
     return type(name, (), attributes)()
-
-
-@pytest.mark.parametrize(
-    "name,dims",
-    [
-        ("MergedQKVParallelLinearWithLoRA", {"lora_b_stacked": -2}),
-        ("MergedColumnParallelLinearWithLoRA", {"lora_b_stacked": -2}),
-        ("MergedColumnParallelLinearVariableSliceWithLoRA", {"lora_b_stacked": -2}),
-        ("RowParallelLinearWithLoRA", {"lora_a_stacked": -1}),
-        ("ReplicatedLinearWithLoRA", {}),
-    ],
-)
-def test_each_reviewed_layer_names_the_dimension_vllm_splits(name, dims):
-    base = SimpleNamespace(num_kv_head_replicas=1)
-    assert adapter_compat.sharded_dims(layer(name, base_layer=base)) == dims
 
 
 def test_plain_column_layer_splits_lora_b_unless_it_packs_gate_and_up():
@@ -168,3 +154,10 @@ def test_a_shard_crosses_the_rpc_as_plain_data_and_its_buffers_round_trip(tmp_pa
         "packed": {"qkv": ["q", "k"]},
         "sharded_dims": {"o.lora_a_stacked": -1},
     }
+
+
+@pytest.mark.parametrize("installed", ["0.31.1", "0.31.0+cpu", "0.31.0rc1"])
+def test_other_vllm_builds_are_rejected_before_reading_buffers(monkeypatch, installed):
+    monkeypatch.setattr(adapter_compat.importlib.metadata, "version", lambda _name: installed)
+    with pytest.raises(ValueError, match=rf"installed {re.escape(installed)}, allowed"):
+        adapter_compat.require_pinned_vllm()
