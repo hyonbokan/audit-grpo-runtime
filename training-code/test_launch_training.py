@@ -285,3 +285,18 @@ def test_accepted_training_merges_the_final_checkpoint_and_runs_the_suite(runtim
     calls = runtime.docker_calls().splitlines()
     release = next(i for i, c in enumerate(calls) if "-m controller release-final-merge" in c)
     assert release < next(i for i, c in enumerate(calls) if "--label evaluated-final" in c)
+
+
+@pytest.mark.parametrize("problem", ["config outside the run", "state exists"])
+def test_a_refused_launch_says_why_before_any_container(runtime, problem):
+    if problem == "state exists":
+        (runtime.run / "state.json").write_text("{}")
+        reason = "already started"
+    else:
+        runtime.config = runtime.tmp / "config.json"
+        runtime.config.write_text("{}")
+        reason = "inside the run directory"
+    result = runtime.launch()
+    assert result.returncode == 2
+    assert reason in result.stderr
+    assert not runtime.docker_calls()

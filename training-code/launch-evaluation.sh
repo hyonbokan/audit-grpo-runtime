@@ -6,10 +6,22 @@ code_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 runtime_root=$(dirname -- "$code_root")
 run_root=$(realpath -s -- "${1:?Usage: launch-evaluation.sh RESULT_DIRECTORY CONFIG_JSON}")
 config_path=$(realpath -s -- "${2:?Explicit reviewed evaluation config required}")
-[[ "$run_root" == "$runtime_root/results/"* && -d "$run_root" ]]
-[[ ! -e "$run_root/prepared.json" && ! -e "$run_root/launcher-exit.txt" ]]
-[[ -f "$config_path" && "$config_path" == "$run_root/"* ]]
-[[ -z "$(nvidia-smi --query-compute-apps=pid --format=csv,noheader)" ]]
+[[ "$run_root" == "$runtime_root/results/"* && -d "$run_root" ]] || {
+  echo "The evaluation directory must exist under $runtime_root/results" >&2
+  exit 2
+}
+[[ ! -e "$run_root/prepared.json" && ! -e "$run_root/launcher-exit.txt" ]] || {
+  echo "Evaluation already started in $run_root" >&2
+  exit 2
+}
+[[ -f "$config_path" && "$config_path" == "$run_root/"* ]] || {
+  echo "The config must be a file inside the evaluation directory" >&2
+  exit 2
+}
+[[ -z "$(nvidia-smi --query-compute-apps=pid --format=csv,noheader)" ]] || {
+  echo "A process is already using the GPUs" >&2
+  exit 2
+}
 cd -- "$code_root"
 sha256sum --check "$run_root/SOURCE_SHA256SUMS" > "$run_root/source-verification.log"
 source "$code_root/launch-lib.sh"

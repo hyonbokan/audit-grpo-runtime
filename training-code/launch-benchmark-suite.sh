@@ -7,8 +7,14 @@ code_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 runtime_root=$(dirname -- "$code_root")
 run_root=$(realpath -s -- "${1:?Suite result directory required}")
 config_path=$(realpath -s -- "${2:?Suite configuration required}")
-[[ "$run_root" == "$runtime_root/results/"* && "$config_path" == "$run_root/"* ]]
-[[ -z "$(nvidia-smi --query-compute-apps=pid --format=csv,noheader)" ]]
+[[ "$run_root" == "$runtime_root/results/"* && "$config_path" == "$run_root/"* ]] || {
+  echo "The suite must be under $runtime_root/results and its config inside it" >&2
+  exit 2
+}
+[[ -z "$(nvidia-smi --query-compute-apps=pid --format=csv,noheader)" ]] || {
+  echo "A process is already using the GPUs" >&2
+  exit 2
+}
 cd -- "$code_root"
 sha256sum --check "$run_root/SOURCE_SHA256SUMS" > "$run_root/source-verification.log"
 source "$code_root/launch-lib.sh"

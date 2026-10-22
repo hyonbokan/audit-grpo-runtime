@@ -9,7 +9,10 @@ run_root=$(realpath -s -- "${1:?$usage}")
 config=$(realpath -s -- "${2:?$usage}")
 resume=0
 if [[ "${3:-}" == --resume ]]; then resume=1; elif [[ -n "${3:-}" ]]; then echo "$usage" >&2; exit 2; fi
-[[ "$run_root" == "$runtime_root/results/"* && "$config" == "$run_root/"* ]]
+[[ "$run_root" == "$runtime_root/results/"* && "$config" == "$run_root/"* ]] || {
+  echo "The run must be under $runtime_root/results and its config inside the run directory" >&2
+  exit 2
+}
 if ((resume)); then
   # Resume training from state.json: accepted visits are kept and an unrecorded
   # pending visit continues in place. Finished training is not re-entered.
@@ -23,7 +26,10 @@ if ((resume)); then
     [[ ! -e "$run_root/$name" ]] || mv "$run_root/$name" "$run_root/controller-attempt-$attempt/"
   done
 else
-  [[ ! -e "$run_root/state.json" && ! -e "$run_root/launcher-exit.txt" ]]
+  [[ ! -e "$run_root/state.json" && ! -e "$run_root/launcher-exit.txt" ]] || {
+    echo "Run already started; continue it with --resume" >&2
+    exit 2
+  }
 fi
 cd -- "$code_root"
 sha256sum --check "$run_root/SOURCE_SHA256SUMS" > "$run_root/source-verification.log"

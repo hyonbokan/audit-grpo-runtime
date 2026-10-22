@@ -10,14 +10,20 @@ run_root=$(realpath -s -- "${1:?$usage}")
 config_host=$(realpath -s -- "${2:?$usage}")
 resume=0
 if [[ "${3:-}" == --resume ]]; then resume=1; elif [[ -n "${3:-}" ]]; then echo "$usage" >&2; exit 2; fi
-[[ -f "$config_host" ]]
-[[ "$run_root" == "$runtime_root/results/"* && -d "$run_root" ]]
+[[ -f "$config_host" ]] || { echo "No config at $config_host" >&2; exit 2; }
+[[ "$run_root" == "$runtime_root/results/"* && -d "$run_root" ]] || {
+  echo "The cycle directory must exist under $runtime_root/results" >&2
+  exit 2
+}
 if ((resume)); then
   # Archive the failed attempt's logs and incomplete phases; completed phases are reused.
   [[ -f "$run_root/prepared.json" ]] || { echo "Resume requires a prepared cycle" >&2; exit 2; }
   python3 "$code_root/cycle_recovery.py" archive "$run_root" "$config_host"
 else
-  [[ ! -e "$run_root/prepared.json" ]]
+  [[ ! -e "$run_root/prepared.json" ]] || {
+    echo "Cycle already prepared; continue it with --resume" >&2
+    exit 2
+  }
   if [[ -e "$run_root/launcher-exit.txt" ]]; then
     # An earlier attempt stopped before preparation; keep its exit record as evidence.
     archive="$run_root/attempts/$(date -u +%Y%m%dT%H%M%SZ)-unprepared"
