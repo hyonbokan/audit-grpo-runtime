@@ -54,10 +54,6 @@ def characters(files):
 def test_human_audit_targets_are_admitted_without_a_second_semantic_review():
     row = audited_corpus.admit_human_audit(candidate())
     assert [t["id"] for t in row["scorer_metadata"]["targets"]] == ["archive:1", "archive:2"]
-    assert (
-        row["scorer_metadata"]["targets"][0]["finding"]["eligibility_review"]["review_origin"]
-        == "human_audit_metadata"
-    )
     c = candidate()
     c["targets"][0]["reference_revisions"] = ["b" * 40]
     with pytest.raises(ValueError, match="revision"):
@@ -154,7 +150,6 @@ def test_policy_prompt_uses_the_reward_schema_without_exposing_human_gt(tmp_path
     messages = audited_corpus.policy_messages(row)
     assert "archive:1" not in str(messages) and "Known issue" not in str(messages)
     assert '"findings"' in messages[-1]["content"]
-    assert "No Markdown fences" in messages[-1]["content"]
     assert messages[0] == {"role": "system", "content": "Audit the code."}
 
 

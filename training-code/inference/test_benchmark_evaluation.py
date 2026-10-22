@@ -39,7 +39,7 @@ def test_completion_allowance_uses_verified_actual_prompt_length():
     from benchmark_evaluation import completion_allowance
 
     config = free_text_configuration()
-    assert completion_allowance(config, 30000) == 262144 - 30000
+    assert completion_allowance(config, 30000) == config["engine"]["max_model_len"] - 30000
     with pytest.raises(ValueError, match="prompt token count"):
         completion_allowance(config, 29999)
     config["sampling"]["max_tokens"] = 16384

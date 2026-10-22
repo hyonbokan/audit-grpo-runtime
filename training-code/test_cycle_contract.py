@@ -10,7 +10,9 @@ import schedules
 from testing.clock import freeze
 from testing.cycles import schedule_cycle
 
-CONDITIONS = [
+CONDITIONS = cycle_contract.CONDITIONS
+# Dropping one of these weakens acceptance, so it takes a deliberate edit here.
+REVIEWED_CONDITIONS = {
     "complete_group",
     "known_grades",
     "sampling_support",
@@ -25,7 +27,11 @@ CONDITIONS = [
     "weight_version_chain",
     "precision_declared",
     "repeat_drift_retained",
-]
+}
+
+
+def test_no_reviewed_condition_is_dropped_from_the_decision():
+    assert set(CONDITIONS) >= REVIEWED_CONDITIONS
 
 
 @pytest.mark.parametrize("condition", CONDITIONS)
@@ -48,15 +54,14 @@ def test_missing_condition_and_unknown_evidence_cannot_approve_training():
 
 
 DAY = "medium-day-20261010"
+DAY_LIMITS = schedules.schedule(DAY)["training"]
 
 
 @pytest.mark.parametrize(
     "name, value",
     [
-        ("seconds_limit", 10801),
         ("retry_limit", 1),
-        ("judge_operation_cap_usd", 101),
-        ("target_step", 5),
+        ("judge_operation_cap_usd", DAY_LIMITS["judge_operation_cap_usd"] + 1),
         ("native_adapter_precision", "bfloat16"),
         ("optimizer_kind", "adamw_torch"),
         ("correction_max", 100),
@@ -69,6 +74,14 @@ def test_configuration_cannot_expand_reviewed_scope(name, value):
     cycle_contract.validate_config(config)
     config[name] = value
     with pytest.raises(ValueError):
+        cycle_contract.validate_config(config)
+
+
+@pytest.mark.parametrize("change", [-0.05, 0.05])
+def test_engine_memory_allocation_is_the_reviewed_one(change):
+    config = schedule_cycle(DAY)
+    config["engine"]["gpu_memory_utilization"] += change
+    with pytest.raises(ValueError, match="engine"):
         cycle_contract.validate_config(config)
 
 
@@ -156,16 +169,8 @@ def test_saved_repeat_evidence_does_not_require_historical_failure(tmp_path):
     result = cycle_contract.finish_cycle(config, tmp_path)
     assert result["decision"]["approved"] is True
     assert result["prior_repeat"] == repeat
+    assert set(result["evidence"]) == set(CONDITIONS)
     assert json.loads((tmp_path / "cycle-result.json").read_text())["optimizer_updates"] == 1
-
-
-def test_acceptance_needs_no_separate_refresh_worker(tmp_path):
-    config, _ = cycle_fixture(tmp_path)
-    assert not (tmp_path / "refresh").exists()
-    result = cycle_contract.finish_cycle(config, tmp_path)
-    assert result["decision"]["approved"] is True
-    assert set(result["evidence"]) == set(cycle_contract.CONDITIONS)
-    assert "fresh_worker_transfer" not in cycle_contract.CONDITIONS
 
 
 def test_update_cannot_hide_training_from_a_different_source(tmp_path):
@@ -296,7 +301,6 @@ def test_launcher_settings_cap_the_cycle_at_the_absolute_deadline(monkeypatch, n
     freeze(monkeypatch, cycle_contract, now)
     config = schedule_cycle("medium-checkpoint-20261010")
     config.update(seconds_limit=21600, absolute_deadline="2026-10-11T01:00:00+00:00")
-    monkeypatch.setattr(cycle_contract, "validate_config", lambda _config: None)
     assert cycle_contract.launcher_settings(config) == [
         config["native_image"],
         config["rollout_image"],

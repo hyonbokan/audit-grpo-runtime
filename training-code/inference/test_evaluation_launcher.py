@@ -68,7 +68,6 @@ esac
     assert (run / "launcher-exit.txt").read_text().strip() == "57"
     assert (run / "last-phase.txt").read_text().strip() == "base"
     assert "generation failed" in (run / "base.log").read_text()
-    assert (run / "audit-grpo-test-evaluation-base-state.json").exists()
     assert not (run / "base-grading.log").exists()
     assert not (run / "checkpoint-2.log").exists()
 

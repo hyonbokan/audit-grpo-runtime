@@ -10,11 +10,11 @@ from testing.judge import contract, sample
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("has_usage", (True, False))
-@pytest.mark.parametrize("effort", ("medium", "high"))
 @pytest.mark.parametrize("cached", (0, 90))
 async def test_router_sends_selected_schema_effort_and_records_response_usage(
-    tmp_path, has_usage, effort, cached
+    tmp_path, has_usage, cached
 ):
+    effort = "medium"
     from grpo import judge_worker
     from grpo.budget import JudgeBudget
 

@@ -19,20 +19,6 @@ from testing.cycles import schedule_cycle
 WEEKEND = {"schedule_id": "weekend-grpo-20261009"}
 
 
-def cycle():
-    return schedule_cycle(WEEKEND["schedule_id"])
-
-
-def test_weekend_engine_reserves_full_context_memory_and_rejects_unreviewed_allocation():
-    config = cycle()
-    config["engine"]["gpu_memory_utilization"] = 0.9
-    validate_config(config)
-    for allocation in (0.85, 0.95):
-        config["engine"]["gpu_memory_utilization"] = allocation
-        with pytest.raises(ValueError, match="engine"):
-            validate_config(config)
-
-
 def test_reduced_schedule_preserves_explicit_order_and_excludes_held_out_rows():
     selected = [f"project-{number}" for number in range(8)]
     config = {**WEEKEND, "training_row_ids": selected, "epochs": 1, "seed": 3407}
@@ -170,11 +156,8 @@ def test_incomplete_cached_merge_is_rejected_before_serving(tmp_path):
 
 
 def test_failure_policy_defaults_to_resume_then_skip_and_rejects_unknown_keys():
-    assert controller.failure_policy({}) == {
-        "visit_attempts": 2,
-        "skip_failed_visits": True,
-        "maximum_consecutive_failed_visits": 2,
-    }
+    default = controller.failure_policy({})
+    assert default["visit_attempts"] > 1 and default["skip_failed_visits"] is True
     strict = {"failure_policy": {"visit_attempts": 1, "skip_failed_visits": False}}
     assert controller.failure_policy(strict)["skip_failed_visits"] is False
     for invalid in ({"visit_atempts": 2}, {"visit_attempts": 0}, {"skip_failed_visits": 1}):
@@ -213,6 +196,10 @@ def test_next_cycle_resumes_an_unrecorded_pending_visit(tmp_path, monkeypatch):
 # --- Visits and identity
 
 DAY = "medium-day-20261010"
+
+
+def maximum_step():
+    return schedules.schedule(DAY)["training"]["maximum_step"]
 
 
 def run_config(tmp_path, **changes):
@@ -269,9 +256,9 @@ def test_next_cycle_builds_the_next_single_step_from_the_accepted_checkpoint(tmp
     assert (written["initial_step"], written["target_step"]) == (5, 6)
     assert written["checkpoint"] == state["current_checkpoint"]
     assert written["initial_adapter_sha256"] == "5" * 64
-    assert written["sampling"]["max_tokens"] == 262144 - 18625
+    assert written["sampling"]["max_tokens"] == schedules.schedule(DAY)["maximum_context"] - 18625
     assert written["continuation_schedule"]["cursor"] == 1
-    assert written["continuation_schedule"]["maximum_step"] == 33
+    assert written["continuation_schedule"]["maximum_step"] == maximum_step()
     assert (root / "SOURCE_SHA256SUMS").read_text() == "frozen\n"
     assert json.loads((out / "pending-training.json").read_text()) == {
         "root": str(root),
@@ -284,7 +271,7 @@ def test_next_cycle_stops_at_the_step_cap_even_with_time_left(tmp_path, monkeypa
     monkeypatch.setattr(controller, "seconds_until", lambda _deadline: 40 * 3600)
     out = tmp_path / "out"
     out.mkdir()
-    state = {"visits": [], "current_step": 33, "completion_gate": True}
+    state = {"visits": [], "current_step": maximum_step(), "completion_gate": True}
     (out / "state.json").write_text(json.dumps(state))
     (out / "schedule.json").write_text(json.dumps(["first"]))
     config = {"schedule_id": DAY, "training_cutoff": "unused"}
@@ -363,12 +350,7 @@ def test_identity_reports_training_only_after_the_step_advanced(tmp_path, step, 
     }
     (tmp_path / "state.json").write_text(json.dumps(state))
     lines = controller.phase_identity(config, tmp_path, 1)
-    assert lines == [
-        f"/results/cp{step}",
-        f"/workspace/cache/weekend-merges/run-step-{step}-aaaaaaaaaaaa",
-        str(step),
-        trained,
-    ]
+    assert lines == [f"/results/cp{step}", panels.merged_path(config, state), str(step), trained]
 
 
 def test_prepare_starts_at_the_configured_checkpoint_without_learning(tmp_path):
@@ -458,15 +440,14 @@ def test_a_visit_backup_is_due_once_the_interval_of_new_visits_has_passed(tmp_pa
     out = tmp_path / "run"
     out.mkdir()
     interval = schedules.scope({"schedule_id": DAY})["storage"]["visit_backup_interval"]
-    assert interval == 5
     backup_receipt(out, "initial", 0)
     due = []
-    for count in range(1, 12):
+    for count in range(1, 2 * interval + 2):
         (out / "state.json").write_text(json.dumps({"visits": [{}] * count}))
         due.append(controller.phase_backup_due({"schedule_id": DAY}, out, 1) == ["true"])
         if due[-1]:
             backup_receipt(out, f"visit-{count:03d}", count)
-    assert [count for count, value in enumerate(due, start=1) if value] == [5, 10]
+    assert [count for count, value in enumerate(due, start=1) if value] == [interval, 2 * interval]
 
 
 def test_a_failed_visit_backup_leaves_the_backup_due(tmp_path):

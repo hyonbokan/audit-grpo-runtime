@@ -3,6 +3,8 @@
 import json
 from pathlib import Path
 
+from benchmark_free_text import PINNED_KEYS
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -41,22 +43,7 @@ def free_text_configuration(row_id="solidity/munchables", *, extra_verification=
     """A reviewed base-only, xhigh-effort, four-draw free-text benchmark config."""
     scope = json.loads((ROOT / "benchmark_scope.json").read_text())
     prompt_tokens = 30000
-    config = {
-        key: scope[key]
-        for key in (
-            "benchmark_suite",
-            "model_id",
-            "model_revision",
-            "base_precision",
-            "native_adapter_precision",
-            "rollout_adapter_precision",
-            "sampler_backend",
-            "rollout_image",
-            "native_image",
-            "evaluation_kind",
-            "benchmark_judge",
-        )
-    }
+    config = {key: scope[key] for key in PINNED_KEYS}
     config.update(
         output_format="free_text",
         row_id=row_id,

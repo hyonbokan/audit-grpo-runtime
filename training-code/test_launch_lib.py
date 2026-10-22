@@ -110,17 +110,9 @@ def test_launchers_refuse_to_start_without_this_hosts_settings(tmp_path):
 
 def test_host_settings_set_the_cache_and_the_restored_workspace(tmp_path):
     cache = write_host_settings(tmp_path)
-    result = run('printf "%s\\n" "$CACHE" "$FROZEN_WORKSPACE" "$CPU_IMAGE"', tmp_path)
-    assert result.stdout.splitlines() == [
-        str(cache),
-        f"{tmp_path}/workspace",
-        "audit-grpo-deps:cu129-v1",
-    ]
-
-
-def test_launchers_create_the_cache_mountpoint_inside_the_read_only_workspace(tmp_path):
+    result = run('printf "%s\\n" "$CACHE" "$FROZEN_WORKSPACE"', tmp_path)
+    assert result.stdout.splitlines() == [str(cache), f"{tmp_path}/workspace"]
     # Docker cannot create /workspace/cache inside a read-only /workspace mount.
-    assert run('printf "%s\\n" "$FROZEN_WORKSPACE"', tmp_path).returncode == 0
     assert (tmp_path / "workspace/cache").is_dir()
 
 

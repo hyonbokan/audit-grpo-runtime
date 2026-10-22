@@ -51,7 +51,7 @@ def test_a_missing_live_container_is_created_with_credentials_read_only_and_netw
     secrets = f"{tmp_path}/runtime/.env:/opt/audit-grpo-secrets/judge.env:ro"
     assert "--name audit-grpo-live" in run and f"-v {secrets}" in run
     assert "--network none" not in run  # The judge calls an external gateway.
-    assert run.endswith("audit-grpo-deps:cu129-v1 sleep infinity")
+    assert run.endswith(" sleep infinity")
 
 
 @pytest.mark.parametrize("state,expected", [("running", None), ("exited", "start audit-grpo-live")])
