@@ -24,13 +24,13 @@ class Runtime:
         for name in ("launch-training.sh", "launch-lib.sh"):
             shutil.copyfile(CODE / name, self.code / name)
         write_host_settings(tmp_path / "runtime")
-        self.run = tmp_path / "runtime/results/run"
+        self.run = tmp_path / "runtime/runs/run"
         self.run.mkdir(parents=True)
         self.config = self.run / "config.json"
         self.config.write_text("{}")
         digest = hashlib.sha256((self.code / "launch-training.sh").read_bytes()).hexdigest()
         (self.run / "SOURCE_SHA256SUMS").write_text(f"{digest}  launch-training.sh\n")
-        self.visit = tmp_path / "runtime/results/run-visit-001"
+        self.visit = tmp_path / "runtime/runs/run-visit-001"
         self.visit.mkdir()
         (self.visit / "config.json").write_text("{}")
         self.bin = tmp_path / "bin"
@@ -261,7 +261,7 @@ def test_accepted_training_merges_the_final_checkpoint_and_runs_the_suite(runtim
     runtime.config.write_text(
         json.dumps({"cycle": {"model_path": "/models/qwen", "model_revision": "abc123"}})
     )
-    suite = runtime.tmp / "runtime/results/run-evaluation"
+    suite = runtime.tmp / "runtime/runs/run-evaluation"
     suite.mkdir()
     suite_calls = runtime.tmp / "suite-calls"
     runtime.script(

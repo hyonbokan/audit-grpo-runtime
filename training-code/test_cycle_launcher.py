@@ -14,7 +14,7 @@ def test_failed_gpu_process_preserves_exit_and_stops_the_cycle(tmp_path):
     code = root / "training-code"
     code.mkdir(parents=True)
     write_host_settings(root)
-    run = root / "results/test-cycle"
+    run = root / "runs/test-cycle"
     run.mkdir(parents=True)
     source = Path(__file__).parent / "launch-cycle.sh"
     shutil.copyfile(source, code / "launch-cycle.sh")
@@ -69,7 +69,7 @@ def test_resume_skips_completed_phases_and_archives_the_failed_attempt(tmp_path)
     code = root / "training-code"
     code.mkdir(parents=True)
     write_host_settings(root)
-    run = root / "results/test-cycle"
+    run = root / "runs/test-cycle"
     run.mkdir(parents=True)
     for name in ("launch-cycle.sh", "launch-lib.sh", "cycle_recovery.py"):
         shutil.copyfile(Path(__file__).with_name(name), code / name)

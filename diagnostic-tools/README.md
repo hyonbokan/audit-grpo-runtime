@@ -19,7 +19,7 @@ prefill timing includes engine overhead. Empty/misaligned evidence cannot pass.
 Numerical and repeated-rate gates preserve their failures without retries.
 
 Run settings, bounded GPU scheduling, evidence and CPU verification:
-`results/checkpoint2-merge-diagnostic-20261009`. The launcher coordinates with the
+`runs/checkpoint2-merge-diagnostic-20261009`. The launcher coordinates with the
 current evaluation after its GPU work ends naturally; CPU grading can continue.
 No paid APIs or network access
 are used by either GPU worker. Tests use the pinned Python3.12 Docker environment

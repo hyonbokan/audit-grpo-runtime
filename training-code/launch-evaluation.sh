@@ -7,8 +7,8 @@ code_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 runtime_root=$(dirname -- "$code_root")
 run_root=$(realpath -s -- "${1:?Usage: launch-evaluation.sh RESULT_DIRECTORY CONFIG_JSON}")
 config_path=$(realpath -s -- "${2:?Explicit reviewed evaluation config required}")
-[[ "$run_root" == "$runtime_root/results/"* && -d "$run_root" ]] || {
-  echo "The evaluation directory must exist under $runtime_root/results" >&2
+[[ "$run_root" == "$runtime_root/runs/"* && -d "$run_root" ]] || {
+  echo "The evaluation directory must exist under $runtime_root/runs" >&2
   exit 2
 }
 [[ ! -e "$run_root/prepared.json" && ! -e "$run_root/launcher-exit.txt" ]] || {

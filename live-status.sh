@@ -8,8 +8,8 @@ docker ps --format '{{.Names}}: {{.Status}}'
 printf '\nGPU memory and utilization\n'
 nvidia-smi --query-gpu=memory.used,memory.total,utilization.gpu --format=csv,noheader
 
-# Each controller run keeps its progress in results/<run>/state.json.
-state=$(ls -t "$runtime_root"/results/*/state.json 2>/dev/null | head -n 1 || true)
+# Each controller run keeps its progress in runs/<run>/state.json.
+state=$(ls -t "$runtime_root"/runs/*/state.json 2>/dev/null | head -n 1 || true)
 if [[ -n "$state" ]]; then
   run=$(dirname -- "$state")
   printf '\nNewest training run: %s\n' "$(basename -- "$run")"
@@ -23,11 +23,11 @@ if [[ -n "$state" ]]; then
     printf 'Last phase: %s\n' "$(cat "$run/last-phase.txt")"
   fi
 else
-  printf '\nNo training run state under results/\n'
+  printf '\nNo training run state under runs/\n'
 fi
 # launch-lib.sh records each detached deadline watchdog as "<pid> <fire epoch> <containers>".
 printf '\nDeadline timers\n'
-for record in "$runtime_root"/results/deadline-timers/*.pid; do
+for record in "$runtime_root"/runs/deadline-timers/*.pid; do
   [[ -f "$record" ]] || continue
   read -r pid fires containers < "$record"
   [[ -d "/proc/$pid" ]] && state=waiting || state='not running'

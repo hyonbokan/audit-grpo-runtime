@@ -44,7 +44,7 @@ def prepare_snapshot(runtime: Path, state: dict, out: Path) -> dict:
     name = state["current_checkpoint"]
     if not name.startswith("/results/") or ".." in Path(name).parts:
         raise ValueError("Checkpoint path is outside experiment results")
-    source = runtime / name.lstrip("/")
+    source = runtime / "runs" / Path(name).relative_to("/results")
     for name in REQUIRED:
         if not (source / name).is_file():
             raise FileNotFoundError(source / name)

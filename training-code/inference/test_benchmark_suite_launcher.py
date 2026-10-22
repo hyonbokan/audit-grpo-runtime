@@ -27,7 +27,7 @@ class Suite:
         shutil.copyfile(source, self.code / source.name)
         shutil.copyfile(source.with_name("launch-lib.sh"), self.code / "launch-lib.sh")
         self.cache = write_host_settings(root)
-        self.results = root / "results"
+        self.results = root / "runs"
         self.out = self.results / "suite"
         self.out.mkdir(parents=True)
         (self.out / "config.json").write_text("{}")

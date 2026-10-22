@@ -21,8 +21,8 @@ change, not a quiet exception.
 - Never commit credentials. Real values live in a restricted env file outside the
   repository; `.env.example` lists the names. Never print or log them.
 - Experiment records, operational state, private repository names, rental hosts and
-  paths, audited project results, judge output and model output stay in `private/` or
-  `results/`, which are git-ignored. Public files refer to `private/` without naming
+  paths, audited project results, judge output and model output stay in `private/`,
+  `runs/` or `results/`, which are git-ignored. Public files refer to `private/` without naming
   the notes inside it.
 - Before committing, check `git status --ignored` and search the diff for tokens, hostnames,
   `/home/` paths and private repository names. Add any new kind of sensitive output to
@@ -53,7 +53,7 @@ One document per purpose. Link to the owner instead of repeating it.
   is read-only history. Never import from `archive/`.
 - One implementation per behavior. Before writing a function, search for an existing one
   and extend its owner module; never copy it. Run-specific values go in
-  `results/<run-id>/config.json`, never in a new dated copy of the source.
+  `runs/<run-id>/config.json`, never in a new dated copy of the source.
 - Superseded code moves to `archive/` in its own change, with a line in `archive/README.md`.
   Delete dead code; do not keep it "for reference" in maintained modules.
 

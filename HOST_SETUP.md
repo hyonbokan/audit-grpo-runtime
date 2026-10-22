@@ -31,7 +31,7 @@ below 575, re-lock for an older CUDA (step 5) instead.
 ## 1. Layout and host settings
 
 ```
-<runtime root>/   this repository; workspace/ (frozen backend, configs), results/, private/ are git-ignored
+<runtime root>/   this repository; workspace/ (frozen backend, configs), runs/, results/, private/ are git-ignored
 <cache>/          outside the repository, mounted as /workspace/cache: huggingface/, wheels/, merges
 ```
 
@@ -63,8 +63,8 @@ against `SHA256SUMS.json`; a full bundle also carries `recovery/FILE_SHA256.json
 | From the bundle (`recovery/...`) | To |
 |---|---|
 | `frozen-backend/`, `workspace-configs/` | `workspace/code/backend/`, `workspace/configs/` |
-| `frozen-corpus/` | `results/<corpus run>/dataset100/` |
-| `experiment/`, record archives | `results/<run>/`, `results/...` unchanged |
+| `frozen-corpus/` | `runs/<corpus run>/dataset100/` |
+| `experiment/`, record archives | `runs/<run>/`, `runs/...` unchanged |
 | `resume/checkpoint-N/` (separate download) | the checkpoint path a run config names |
 
 **Done when** all hashes match, `sha256sum training-code/private/policy_rendering.json` equals
@@ -89,12 +89,12 @@ runs stay comparable with earlier hosts; a rebuild is a new environment even wit
 
 ```bash
 sha256sum -c images-cu129-v1.tar.zst.sha256 && zstd -dc images-cu129-v1.tar.zst | docker load
-cp build.json <runtime root>/results/images-cu129-v1/   # its IDs must equal docker image inspect
+cp build.json <runtime root>/runs/images-cu129-v1/   # its IDs must equal docker image inspect
 ```
 
 **Build** only when no archive fits the driver: `bash images/build.sh <cache>/wheels`. It fetches
 every locked wheel to the host first (resumable), then builds offline and hash-locked, checks
-each environment against its lock and records IDs in `results/images-<suffix>/`. Locks:
+each environment against its lock and records IDs in `runs/images-<suffix>/`. Locks:
 `gpu-requirements-cu129.lock` (deps: torch, Unsloth, TRL, PEFT) and `vllm-requirements-cu129.lock`
 (the same plus vLLM). They hold every non-CUDA pin of the original CUDA 13 locks; re-lock
 commands are in `private/`. After a build, archive it for the next host (upload needs approval):
@@ -126,10 +126,10 @@ complete receipts and skips grading when `grading/rewards.json` exists.
    `scheduler.pt`, `rng_state.pth`).
 2. Register a fit-only schedule in `schedules.json` with this host's `update_placement`,
    `tensor_parallel_size` and `offload_layers`; run `provenance.py`.
-3. If the images were rebuilt, copy the run's `source-plan.json` to `results/<fit>/` and update
+3. If the images were rebuilt, copy the run's `source-plan.json` to `runs/<fit>/` and update
    only the `package_versions` that differ (e.g. torch `2.13.0+cu129`), noting why in
    `change_record`. Never edit the original.
-4. Copy the visit's `config.json` to `results/<fit-run>/` and change ids, images, deadline,
+4. Copy the visit's `config.json` to `runs/<fit-run>/` and change ids, images, deadline,
    caps, placement and `source_plan`.
 5. Run `cycle_contract prepare` (as `launch-cycle.sh` does), copy the visit's `rollout/` and
    `grading/` and `SOURCE_SHA256SUMS` in, then start
@@ -151,7 +151,7 @@ verified by the next rollout; a fit replay checks it by starting a rollout from 
 - **Stale tools early on PATH** (e.g. a copied `~/bin`: Python without SSL, broken `tmux`).
   `preflight.sh` warns; call `/usr/bin/<tool>` or pass `HOST_PYTHON` to `images/build.sh`.
 - **Run outputs are owned by root.** Move a failed attempt aside, or delete it from a
-  container: `docker run --rm -v "$PWD/results:/results" <image> rm -rf /results/<dir>`.
+  container: `docker run --rm -v "$PWD/runs:/results" <image> rm -rf /results/<dir>`.
 - **NCCL needs a large `/dev/shm`.** Launchers pass `--shm-size 16g`; do the same ad hoc.
 - **Copied plans override code defaults.** Check effective values (e.g. `judge_call_retries`)
   in the generated `judge-plan.json`.

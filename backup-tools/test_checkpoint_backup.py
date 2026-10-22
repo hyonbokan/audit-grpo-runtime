@@ -8,7 +8,7 @@ import checkpoint_backup
 
 def fixture(tmp_path):
     runtime = tmp_path / "runtime"
-    checkpoint = runtime / "results/visit/update/checkpoint-3"
+    checkpoint = runtime / "runs/visit/update/checkpoint-3"
     checkpoint.mkdir(parents=True)
     contents = {
         "adapter_model.safetensors": b"new adapter",

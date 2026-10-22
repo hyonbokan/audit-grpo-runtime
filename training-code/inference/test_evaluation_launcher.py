@@ -16,7 +16,7 @@ def launch(tmp_path, docker, **environment):
     root = tmp_path / "runtime"
     code = root / "training-code"
     code.mkdir(parents=True)
-    run = root / "results/test-evaluation"
+    run = root / "runs/test-evaluation"
     run.mkdir(parents=True)
     for name in ("launch-evaluation.sh", "launch-lib.sh"):
         shutil.copyfile(CODE / name, code / name)

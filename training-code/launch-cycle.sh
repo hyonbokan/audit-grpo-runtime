@@ -11,8 +11,8 @@ config_host=$(realpath -s -- "${2:?$usage}")
 resume=0
 if [[ "${3:-}" == --resume ]]; then resume=1; elif [[ -n "${3:-}" ]]; then echo "$usage" >&2; exit 2; fi
 [[ -f "$config_host" ]] || { echo "No config at $config_host" >&2; exit 2; }
-[[ "$run_root" == "$runtime_root/results/"* && -d "$run_root" ]] || {
-  echo "The cycle directory must exist under $runtime_root/results" >&2
+[[ "$run_root" == "$runtime_root/runs/"* && -d "$run_root" ]] || {
+  echo "The cycle directory must exist under $runtime_root/runs" >&2
   exit 2
 }
 if ((resume)); then

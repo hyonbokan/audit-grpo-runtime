@@ -8,8 +8,8 @@ images_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 usage="Usage: build.sh WHEEL_DIRECTORY [TAG_SUFFIX]"
 wheels=$(realpath -m -- "${1:?$usage}")
 suffix=${2:-cu129-v1}
-# Build evidence is host-specific, so it goes to the git-ignored results directory.
-out="$(dirname -- "$images_root")/results/images-$suffix"
+# Build evidence is host-specific, so it goes to the git-ignored runs directory.
+out="$(dirname -- "$images_root")/runs/images-$suffix"
 mkdir -p "$out"
 record="$out/build.json"
 trap 'status=$?; ((status == 0)) || echo "Image build failed with status $status" >&2' EXIT

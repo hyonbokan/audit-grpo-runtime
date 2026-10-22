@@ -69,7 +69,7 @@ def test_deadline_timer_stops_the_named_containers_after_its_launcher_has_exited
 def test_stopped_deadline_timer_never_fires_and_leaves_no_process(tmp_path):
     env, calls = fake_docker(tmp_path)
     run("start_deadline_timer unit 2 c-rollout", tmp_path, **env)
-    record = tmp_path / "results/deadline-timers/unit.pid"
+    record = tmp_path / "runs/deadline-timers/unit.pid"
     pid = int(record.read_text().split()[0])
     assert run("stop_deadline_timer unit", tmp_path, **env).returncode == 0
     time.sleep(3)
@@ -89,7 +89,7 @@ def test_restarting_a_deadline_timer_replaces_the_previous_one(tmp_path):
 def test_stopping_a_stale_timer_record_never_kills_an_unrelated_process(tmp_path):
     other = subprocess.Popen(["sleep", "30"], start_new_session=True)
     try:
-        record = tmp_path / "results/deadline-timers/unit.pid"
+        record = tmp_path / "runs/deadline-timers/unit.pid"
         record.parent.mkdir(parents=True)
         record.write_text(f"{other.pid} 0 c-rollout\n")
         assert run("stop_deadline_timer unit", tmp_path).returncode == 0
