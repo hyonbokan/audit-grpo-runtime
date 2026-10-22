@@ -25,5 +25,5 @@ fi
 NATIVE_IMAGE=$image JUDGE_IMAGE=$image DOCKER_PLATFORM=linux/amd64 \
   TEST_TOOLS=$tools FROZEN_BACKEND=$backend \
   UNAVAILABLE_TESTS="inference/test_adapter_compat.py inference/test_adapter_mapping.py \
-    inference/test_rollout.py inference/test_sampling_support.py inference/test_sampler_compat.py" \
+    inference/test_rollout.py inference/test_sampling_support.py" \
   exec bash "$code_root/run-tests.sh" "$@"

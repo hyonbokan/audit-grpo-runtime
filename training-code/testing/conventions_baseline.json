@@ -7,7 +7,6 @@
     "grpo/corrected_update.py": 5,
     "grpo/judge_cache.py": 1,
     "grpo/judge_worker.py": 4,
-    "grpo/measurement.py": 3,
     "grpo/native_policy.py": 1,
     "grpo/reward.py": 1,
     "hf_backup.py": 5,
@@ -58,11 +57,9 @@
     "grpo/memory_compat.py": 7,
     "grpo/native_policy.py": 14,
     "grpo/reward.py": 1,
-    "grpo/sampling.py": 2,
     "hf_backup.py": 4,
     "inference/adapter_compat.py": 2,
     "inference/benchmark_evaluation.py": 1,
-    "inference/rollout.py": 3,
-    "inference/sampler_compat.py": 1
+    "inference/rollout.py": 3
   }
 }

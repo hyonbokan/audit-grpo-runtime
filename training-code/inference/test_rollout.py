@@ -119,7 +119,7 @@ def test_versioned_groups_capture_actual_sdk_tokens(tmp_path, monkeypatch, mode)
                 return [True]
             if method == "verify_adapter":
                 return [{"cast_transfer_verified": True, "source_tensor_count": 2}]
-            raise ValueError("Corrected replay must not install native sampler hooks")
+            raise ValueError(f"Unexpected worker RPC: {method}")
 
         def generate(self, prompts, params, *, use_tqdm, **request_options):
             assert prompts == [{"prompt_token_ids": [1, 2]}]
