@@ -13,7 +13,7 @@ in `../private/` (not in git; start with its README).
 | Path | What it does |
 |---|---|
 | `launch-training.sh` | Multi-visit run: prepare, one cycle per visit, backups, merge, final evaluation. |
-| `launch-cycle.sh` | One cycle: rollout → grading → update → refresh → acceptance. |
+| `launch-cycle.sh` | One cycle: rollout → grading → update → acceptance. |
 | `launch-evaluation.sh` | One matched evaluation of one project (native benchmark). |
 | `launch-benchmark-suite.sh` | Runs `launch-evaluation.sh` per held-out project and writes the report. |
 | `launch-lib.sh` | Shared mounts, environment, deadline timer and live-container exec. |
@@ -106,7 +106,7 @@ holds every cycle to it and `launch-cycle.sh` exposes only those GPUs to each co
 - `AUDIT_GRPO_PEER_ACCESS` in `../host.env`: `disabled` preloads `peer_access/no_peer_access.c`
   (compiled once into `<cache>/peer-access/`) in every container, for hosts whose GPU peer
   copies are corrupt. `../preflight.sh` tells which a host needs.
-- `tensor_parallel_size` (default 1): vLLM tensor parallelism for rollout and refresh. With
+- `tensor_parallel_size` (default 1): vLLM tensor parallelism for rollout. With
   more than one rank, each rank reports its LoRA buffers (`adapter_shards`) and the driver
   rebuilds and verifies the full adapter (`adapter_compat.verify_tensor_parallel`).
 
@@ -115,7 +115,7 @@ holds every cycle to it and `launch-cycle.sh` exposes only those GPUs to each co
 Nothing has to be cleaned by hand during a run; the policy is `storage` in `schedules.json`.
 
 - After every recorded visit, `controller prune` deletes the vLLM adapter copies
-  (`rollout/` and `refresh/mapped-adapter/`; the phase receipts keep their hashes) and the
+  (`rollout/mapped-adapter/`; the rollout receipt keeps their hashes) and the
   resume-only files (`optimizer.pt`, `scheduler.pt`, `rng_state.pth`) of every accepted
   checkpoint except the newest `resume_states_kept`. Adapters are never deleted. Each
   deletion is appended to the run's `retention.json`.

@@ -1,4 +1,4 @@
-"""Versioned four-draw rollout or post-update refresh in a separate vLLM process."""
+"""Versioned four-draw training rollout or evaluation arm in a separate vLLM process."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from grpo.samples import capture_sample
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("phase", choices=("rollout", "refresh", "evaluate"))
+    parser.add_argument("phase", choices=("rollout", "evaluate"))
     parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     args = parser.parse_args(argv)
@@ -44,35 +44,19 @@ def run_rollout(phase: str, config: dict[str, Any], out: Path) -> dict[str, Any]
         or request["model"]["revision"] != config["model_revision"]
     ):
         raise ValueError("Pinned model request differs")
-    step = config["target_step"] if phase == "refresh" else config["initial_step"]
+    step = config["initial_step"]
     base = phase == "evaluate" and config.get("label") == "base"
     if config.get("merged_model_path") and phase != "evaluate":
         raise ValueError("Merged weights are evaluation-only")
     merged = bool(config.get("merged_model_path")) and not base
-    checkpoint = (
-        None
-        if base
-        else (
-            Path(config["checkpoint"])
-            if phase != "refresh"
-            else out.parent / f"update/checkpoint-{step}"
-        )
-    )
+    checkpoint = None if base else Path(config["checkpoint"])
     digest = (
         hashlib.sha256((checkpoint / "adapter_model.safetensors").read_bytes()).hexdigest()
         if checkpoint is not None
         else None
     )
-    if not base and phase != "refresh" and digest != config["initial_adapter_sha256"]:
+    if not base and digest != config["initial_adapter_sha256"]:
         raise ValueError("Initial source checkpoint identity differs")
-    if phase == "refresh":
-        updated = json.loads((out.parent / "update/receipt.json").read_text())
-        if (
-            updated["adapter_sha256"] != digest
-            or updated["global_step"] != step
-            or digest == config["initial_adapter_sha256"]
-        ):
-            raise ValueError("Fresh trainer checkpoint identity/progression differs")
     version = f"base:{config['model_revision']}" if base else f"step-{step}:{digest}"
     representation = "base_bf16" if base else "merged_bf16" if merged else "runtime_lora"
     provenance = {"weight_representation": representation}
@@ -143,8 +127,6 @@ def run_rollout(phase: str, config: dict[str, Any], out: Path) -> dict[str, Any]
                 tensors=receipt["transfer"]["source_tensor_count"],
             )
         settings = dict(config["sampling"])
-        if phase == "refresh":
-            settings.update(n=1, max_tokens=1)
         generation_start = time.monotonic()
         output = engine.generate(
             [{"prompt_token_ids": request["prompt_ids"]}],

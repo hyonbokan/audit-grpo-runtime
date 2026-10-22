@@ -12,6 +12,7 @@ from typing import Any
 
 import schedules
 from grpo.placement import docker_gpus, load_options, rollout_gpus
+from runtime_io import sha256_file
 
 CONDITIONS = (
     "complete_group",
@@ -24,8 +25,8 @@ CONDITIONS = (
     "changed_weights",
     "optimizer_progress",
     "checkpoint_saved",
-    "fresh_worker_transfer",
-    "fresh_weight_version",
+    "saved_adapter_identity",
+    "weight_version_chain",
     "precision_declared",
     "repeat_drift_retained",
 )
@@ -185,7 +186,7 @@ def differing(actual: Any, reviewed: dict[str, Any], prefix: str = "") -> str:
 def prepare_cycle(config: dict[str, Any], out: Path) -> None:
     validate_config(config)
     if (out / "prepared.json").exists() or any(
-        (out / name).exists() for name in ("rollout", "update", "refresh", "grading")
+        (out / name).exists() for name in ("rollout", "update", "grading")
     ):
         raise FileExistsError("GPU-cycle output must be fresh")
     deadline = datetime.fromisoformat(config["absolute_deadline"])
@@ -252,7 +253,6 @@ def validate_policy_profile(config: dict, request: dict, plan: dict) -> None:
 def finish_cycle(config: dict[str, Any], out: Path) -> dict[str, Any]:
     source = json.loads((out / "rollout/receipt.json").read_text())
     update = json.loads((out / "update/receipt.json").read_text())
-    fresh = json.loads((out / "refresh/receipt.json").read_text())
     samples = json.loads((out / "rollout/samples.json").read_text())
     grades = json.loads((out / "grading/rewards.json").read_text())
     prior = json.loads(Path(config["prior_analysis"]).read_text())
@@ -290,15 +290,15 @@ def finish_cycle(config: dict[str, Any], out: Path) -> dict[str, Any]:
                 "trainer_state.json",
             )
         ),
-        "fresh_worker_transfer": fresh["transfer"]["cast_transfer_verified"],
-        "fresh_weight_version": fresh["weight_version"] == update["weight_version"]
-        and fresh["weight_version"] != source["weight_version"]
+        # vLLM's copy of this adapter is verified when the next visit's rollout loads it.
+        "saved_adapter_identity": (checkpoint / "adapter_model.safetensors").is_file()
+        and sha256_file(checkpoint / "adapter_model.safetensors") == update["adapter_sha256"]
+        and update["weight_version"] == f"step-{config['target_step']}:{update['adapter_sha256']}",
+        "weight_version_chain": update["weight_version"] != source["weight_version"]
         and update["source_weight_version"] == source["weight_version"]
         and all(sample["weight_version"] == source["weight_version"] for sample in samples),
-        "precision_declared": fresh["native_adapter_precision"]
-        == source["native_adapter_precision"]
-        == "float32"
-        and fresh["rollout_adapter_precision"] == source["rollout_adapter_precision"] == "bfloat16",
+        "precision_declared": source["native_adapter_precision"] == "float32"
+        and source["rollout_adapter_precision"] == "bfloat16",
         "repeat_drift_retained": "repeat" in prior
         and all(
             math.isfinite(prior["repeat"].get(name, float("nan")))

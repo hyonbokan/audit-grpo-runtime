@@ -10,12 +10,8 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-PHASES = ("rollout", "grading", "update", "refresh")
-COMPLETE_STATUS = {
-    "rollout": "versioned_rollout_saved",
-    "update": "corrected_update_saved",
-    "refresh": "versioned_rollout_saved",
-}
+PHASES = ("rollout", "grading", "update")
+COMPLETE_STATUS = {"rollout": "versioned_rollout_saved", "update": "corrected_update_saved"}
 # Recomputed from phase outputs on every attempt.
 ATTEMPT_FILES = ("launcher-exit.txt", "last-phase.txt", "group-decision.json", "cycle-result.json")
 

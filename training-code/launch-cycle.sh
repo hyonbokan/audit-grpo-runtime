@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# One corrected GRPO cycle: rollout, judge grading, native update, fresh-worker refresh, acceptance.
+# One corrected GRPO cycle: rollout, judge grading, native update, acceptance.
+# The next visit's rollout verifies vLLM's copy of the new adapter before it samples.
 set -euo pipefail
 
 code_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -68,7 +69,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
-start_deadline_timer "$timer" "$seconds" "$prefix-rollout" "$prefix-update" "$prefix-refresh"
+start_deadline_timer "$timer" "$seconds" "$prefix-rollout" "$prefix-update"
 
 gpu_phase() {
   local image=$1 memory=$2 gpus=$3 container="$prefix-$phase"
@@ -117,10 +118,6 @@ fi
 phase=update
 phase_complete update || gpu_phase "$native_image" 128g "$update_gpus" -m grpo.corrected_update \
   --config "$config" --out "$container_out/update"
-
-phase=refresh
-phase_complete refresh || gpu_phase "$rollout_image" 64g "$rollout_gpus" /training-code/inference/rollout.py \
-  refresh --config "$config" --out "$container_out/refresh"
 
 phase=acceptance
 timeout --foreground "$(remaining)s" docker run --rm --network none \

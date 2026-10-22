@@ -1,5 +1,6 @@
 """The complete corrected-cycle decision refuses omitted or stale evidence."""
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -21,8 +22,8 @@ CONDITIONS = [
     "changed_weights",
     "optimizer_progress",
     "checkpoint_saved",
-    "fresh_worker_transfer",
-    "fresh_weight_version",
+    "saved_adapter_identity",
+    "weight_version_chain",
     "precision_declared",
     "repeat_drift_retained",
 ]
@@ -39,10 +40,10 @@ def test_every_condition_participates_in_complete_decision(condition):
 
 def test_missing_condition_and_unknown_evidence_cannot_approve_training():
     evidence = dict.fromkeys(CONDITIONS, True)
-    del evidence["fresh_worker_transfer"]
+    del evidence["saved_adapter_identity"]
     with pytest.raises(ValueError):
         cycle_contract.evaluate_cycle(evidence)
-    evidence["fresh_worker_transfer"] = None
+    evidence["saved_adapter_identity"] = None
     with pytest.raises(ValueError):
         cycle_contract.evaluate_cycle(evidence)
 
@@ -73,7 +74,7 @@ def test_configuration_cannot_expand_reviewed_scope(name, value):
         cycle_contract.validate_config(config)
 
 
-def test_reviewed_cycle_allows_time_for_generation_training_and_refresh():
+def test_reviewed_cycle_allows_time_for_generation_and_training():
     config = json.loads((Path(__file__).parent / "fixtures/cycle.json").read_text())
     config["seconds_limit"] = 5400
     cycle_contract.validate_config(config)
@@ -88,6 +89,10 @@ def test_cli_rejects_missing_checkpoint_without_creating_prepared_receipt(tmp_pa
     with pytest.raises(FileNotFoundError, match=r"adapter_model\.safetensors"):
         cycle_contract.main(["prepare", "--config", str(path), "--out", str(tmp_path)])
     assert not (tmp_path / "prepared.json").exists()
+
+
+SAVED_ADAPTER = b"trained adapter"
+SAVED_ADAPTER_SHA256 = hashlib.sha256(SAVED_ADAPTER).hexdigest()
 
 
 def cycle_fixture(tmp_path):
@@ -107,12 +112,6 @@ def cycle_fixture(tmp_path):
             "native_adapter_precision": "float32",
             "rollout_adapter_precision": "bfloat16",
         },
-        "refresh/receipt.json": {
-            "transfer": {"cast_transfer_verified": True},
-            "weight_version": "step-2:new",
-            "native_adapter_precision": "float32",
-            "rollout_adapter_precision": "bfloat16",
-        },
         "update/receipt.json": {
             "loss": 0.1,
             "gradient_norm": 1.0,
@@ -120,7 +119,8 @@ def cycle_fixture(tmp_path):
             "correction_ess_fraction": 1.0,
             "adapter_weights_changed": True,
             "optimizer_steps": [2],
-            "weight_version": "step-2:new",
+            "adapter_sha256": SAVED_ADAPTER_SHA256,
+            "weight_version": f"step-2:{SAVED_ADAPTER_SHA256}",
             "source_weight_version": "step-1:old",
         },
         "rollout/samples.json": [{"sampling_support_ids": [[1]], "weight_version": "step-1:old"}]
@@ -133,14 +133,9 @@ def cycle_fixture(tmp_path):
         path.write_text(json.dumps(value))
     checkpoint = tmp_path / "update/checkpoint-2"
     checkpoint.mkdir()
-    for name in (
-        "adapter_model.safetensors",
-        "optimizer.pt",
-        "rng_state.pth",
-        "scheduler.pt",
-        "trainer_state.json",
-    ):
+    for name in ("optimizer.pt", "rng_state.pth", "scheduler.pt", "trainer_state.json"):
         (checkpoint / name).touch()
+    (checkpoint / "adapter_model.safetensors").write_bytes(SAVED_ADAPTER)
     return config, repeat
 
 
@@ -152,15 +147,36 @@ def test_saved_repeat_evidence_does_not_require_historical_failure(tmp_path):
     assert json.loads((tmp_path / "cycle-result.json").read_text())["optimizer_updates"] == 1
 
 
-def test_fresh_version_cannot_hide_training_from_a_different_source(tmp_path):
+def test_acceptance_needs_no_separate_refresh_worker(tmp_path):
+    config, _ = cycle_fixture(tmp_path)
+    assert not (tmp_path / "refresh").exists()
+    result = cycle_contract.finish_cycle(config, tmp_path)
+    assert result["decision"]["approved"] is True
+    assert set(result["evidence"]) == set(cycle_contract.CONDITIONS)
+    assert "fresh_worker_transfer" not in cycle_contract.CONDITIONS
+
+
+def test_update_cannot_hide_training_from_a_different_source(tmp_path):
     config, _ = cycle_fixture(tmp_path)
     path = tmp_path / "update/receipt.json"
     receipt = json.loads(path.read_text())
     receipt["source_weight_version"] = "step-1:unrelated"
     path.write_text(json.dumps(receipt))
     result = cycle_contract.finish_cycle(config, tmp_path)
-    assert result["decision"]["approved"] is False
-    assert "fresh_weight_version" in result["decision"]["failed_conditions"]
+    assert result["decision"]["failed_conditions"] == ["weight_version_chain"]
+
+
+@pytest.mark.parametrize(
+    ("receipt_change", "saved_bytes"),
+    [({}, b"a different adapter"), ({"weight_version": "step-2:other"}, SAVED_ADAPTER)],
+)
+def test_saved_adapter_must_be_the_one_the_update_reported(tmp_path, receipt_change, saved_bytes):
+    config, _ = cycle_fixture(tmp_path)
+    path = tmp_path / "update/receipt.json"
+    path.write_text(json.dumps({**json.loads(path.read_text()), **receipt_change}))
+    (tmp_path / "update/checkpoint-2/adapter_model.safetensors").write_bytes(saved_bytes)
+    result = cycle_contract.finish_cycle(config, tmp_path)
+    assert result["decision"]["failed_conditions"] == ["saved_adapter_identity"]
 
 
 # --- Schedule-bound cycles
@@ -181,8 +197,6 @@ def continuation_config():
 
 
 def test_preparation_carries_explicit_dotenv_path_to_training_worker(tmp_path, monkeypatch):
-    import hashlib
-
     from cycle_contract import prepare_cycle
 
     freeze(monkeypatch, cycle_contract, "2026-10-09T00:00:00+00:00")

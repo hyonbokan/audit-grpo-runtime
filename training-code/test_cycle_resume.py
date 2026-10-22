@@ -40,7 +40,6 @@ def test_failed_update_reuses_rollout_and_grades_and_archives_the_rest(tmp_path)
         "rollout": True,
         "grading": True,
         "update": False,
-        "refresh": False,
     }
     archive = archive_failed_attempt(root, CONFIG)
     assert {p.name for p in archive.iterdir()} == {

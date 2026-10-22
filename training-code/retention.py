@@ -8,8 +8,6 @@ from pathlib import Path
 from hf_backup import RESUME_ONLY_NAMES
 from runtime_io import read_json, save_json, utc_now
 
-# Per-phase copies of the adapter that vLLM loaded; each phase's receipt keeps their hashes.
-ADAPTER_COPY_PHASES = ("rollout", "refresh")
 MERGE_MANIFEST = "MERGE_MANIFEST.json"
 GIB = 2**30
 
@@ -23,8 +21,8 @@ def prune_visits(state: dict, resume_states_kept: int) -> list[dict]:
         raise ValueError("storage.resume_states_kept must be an integer of at least 1")
     removed = []
     for visit in state["visits"]:
-        for phase in ADAPTER_COPY_PHASES:
-            removed += remove_tree(Path(visit["root"]) / phase / "mapped-adapter")
+        # The copy of the adapter that vLLM loaded; the rollout receipt keeps its hashes.
+        removed += remove_tree(Path(visit["root"]) / "rollout/mapped-adapter")
     checkpoints = [
         Path(visit["root"]) / "update" / f"checkpoint-{visit['update']['global_step']}"
         for visit in state["visits"]
