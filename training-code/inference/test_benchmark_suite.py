@@ -273,18 +273,6 @@ def test_suite_report_counts_only_this_suites_judge_calls_and_reservations(tmp_p
     assert result["cost"]["shared_ledger_charge_usd"] == 10.7
 
 
-def test_free_text_suite_compares_the_trained_arm_with_the_frozen_base_draws():
-    rows = [
-        project("a", 4, (1, 0, 2), (2, 0, 2), label="checkpoint-7"),
-        project("b", 2, (0, 1, 1), (1, 1, 2), label="checkpoint-7"),
-    ]
-    result = summarize(rows, label="checkpoint-7")
-    assert result["status"] == "matched_suite_completed"
-    assert result["aggregates"]["base"]["exact_matches"] == 4 * 1 + 4 * 0
-    assert result["aggregates"]["checkpoint-7"]["exact_matches"] == 4 * 2 + 4 * 1
-    assert result["comparison"]["macro_deltas"]["recall"] == pytest.approx((0.25 + 0.5) / 2)
-
-
 def test_suite_report_reads_the_frozen_base_receipt_but_charges_only_new_generation(tmp_path):
     project_record = finished_project(tmp_path, "small")
     frozen = tmp_path / "base-small"

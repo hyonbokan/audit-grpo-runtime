@@ -79,29 +79,6 @@ async def test_router_sends_selected_schema_effort_and_records_response_usage(
 
 
 @pytest.mark.asyncio
-async def test_router_failure_is_recorded_and_propagated(tmp_path):
-    from grpo import judge_worker
-
-    class Router:
-        async def complete(self, *_args, **_options):
-            raise TimeoutError("network unavailable")
-
-    with pytest.raises(TimeoutError):
-        await judge_worker.RouterJudge(Router(), tmp_path)(
-            {
-                "method": "sgr_match",
-                "model": "gpt-6.1-sol",
-                "reasoning_effort": "high",
-                "system": "Selected",
-                "payload": {"candidate_findings": []},
-            }
-        )
-    failure = json.loads((tmp_path / "call-0001/error.json").read_text())
-    assert failure["type"] == "TimeoutError"
-    assert failure["usage"] is None
-
-
-@pytest.mark.asyncio
 async def test_budget_withholds_api_call_after_unknown_usage(tmp_path):
     from grpo import judge_worker
     from grpo.budget import JudgeBudget

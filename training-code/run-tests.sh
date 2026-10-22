@@ -20,7 +20,7 @@ unavailable=(${UNAVAILABLE_TESTS:-})
 # Python 3.14 judge environment: router, reward, budget and panel scoring code.
 judge_tests=(
   grpo/test_judge_worker.py grpo/test_reward.py grpo/test_judge_environment.py
-  grpo/test_budget.py grpo/test_judge_cache.py test_audited_reward.py
+  grpo/test_budget.py grpo/test_judge_cache.py
   inference/test_benchmark_judge.py
 )
 

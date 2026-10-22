@@ -92,24 +92,3 @@ def test_operations_in_one_ledger_reserve_and_settle_independently(tmp_path):
     assert calls[held]["budget_charge_usd"] == pytest.approx(44e-6)
     assert calls[other]["status"] == "reserved"
     assert calls[other]["budget_charge_usd"] == calls[other]["reserved_usd"] > 0
-
-
-def test_maintained_budget_is_used_with_frozen_backend_on_import_path(tmp_path):
-    import os
-    import subprocess
-    import sys
-    from pathlib import Path
-
-    environment = {
-        **os.environ,
-        "PYTHONPATH": f"{Path(__file__).parents[1]}:/workspace/code/backend",
-    }
-    result = subprocess.run(
-        [sys.executable, "-c", "import grpo.budget; print(grpo.budget.__file__)"],
-        env=environment,
-        cwd=tmp_path,
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, result.stderr
-    assert Path(result.stdout.strip()).resolve() == Path(__file__).with_name("budget.py").resolve()

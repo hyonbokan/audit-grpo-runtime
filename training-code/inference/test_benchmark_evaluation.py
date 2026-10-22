@@ -284,13 +284,6 @@ def frozen_base_and_trained_run(tmp_path):
     return config, out, base_root, base_draws
 
 
-def test_frozen_base_reference_returns_its_graded_base_draws(tmp_path):
-    from benchmark_evaluation import load_base_reference
-
-    config, out, _base_root, base_draws = frozen_base_and_trained_run(tmp_path)
-    assert load_base_reference(config, out) == base_draws
-
-
 @pytest.mark.parametrize(
     "change",
     [

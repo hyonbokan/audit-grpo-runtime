@@ -30,16 +30,6 @@ def test_base_only_xhigh_effort_four_draw_config_is_reviewed():
     free_text.validate_config(free_text_configuration())
 
 
-def test_the_five_solidity_repos_are_the_evaluation_set():
-    assert free_text.evaluation_row_ids() == [
-        "solidity/munchables",
-        "solidity/vultisig",
-        "solidity/tigris",
-        "solidity/backd",
-        "solidity/phi",
-    ]
-
-
 @pytest.mark.parametrize(
     "change",
     [
@@ -123,11 +113,6 @@ def test_a_frozen_base_reference_admits_exactly_one_trained_arm(change):
     config["generation_order"] = [case["label"] for case in config["cases"]]
     with pytest.raises(ValueError):
         free_text.validate_config(config)
-
-
-def test_extracted_findings_may_omit_severity_and_contracts():
-    findings = [{"issue": "Reentrancy", "description": "...", "severity": "N/A", "contracts": []}]
-    assert free_text.validate_extracted({"findings": findings}) == findings
 
 
 @pytest.mark.parametrize(

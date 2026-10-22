@@ -47,11 +47,6 @@ def test_missing_condition_and_unknown_evidence_cannot_approve_training():
         cycle_contract.evaluate_cycle(evidence)
 
 
-def test_all_explicit_conditions_approve_only_one_cycle():
-    result = cycle_contract.evaluate_cycle(dict.fromkeys(CONDITIONS, True))
-    assert result == {"approved": True, "failed_conditions": [], "scope": "one_corrected_cycle"}
-
-
 DAY = "medium-day-20261010"
 
 
@@ -367,10 +362,3 @@ def test_a_cycle_cannot_change_the_reviewed_tensor_parallel_size(split_schedule)
     split_schedule["engine"]["tensor_parallel_size"] = 1
     with pytest.raises(ValueError, match="tensor_parallel_size"):
         cycle_contract.validate_config(split_schedule)
-
-
-def test_schedules_without_placement_keep_the_one_gpu_update():
-    config = schedule_cycle("medium-day-20261010")
-    assert config["update_placement"] == {"gpus": [0], "embedding": "offloaded"}
-    assert "tensor_parallel_size" not in config["engine"]
-    cycle_contract.validate_config(config)

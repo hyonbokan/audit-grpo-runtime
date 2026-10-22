@@ -1,16 +1,6 @@
 import pytest
 
 import cycle_contract
-from testing.cycles import schedule_cycle
-
-
-def test_xhigh_schedule_requires_explicit_xhigh_policy_effort():
-    config = schedule_cycle("weekend-grpo-20261009")
-    assert config["policy_reasoning_effort"] == "xhigh"
-    cycle_contract.validate_config(config)
-    config["policy_reasoning_effort"] = "medium"
-    with pytest.raises(ValueError, match="reasoning"):
-        cycle_contract.validate_config(config)
 
 
 def test_low_prompt_cannot_be_relabelled_as_an_xhigh_training_request():

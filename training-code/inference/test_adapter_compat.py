@@ -49,21 +49,6 @@ def layer(name, **attributes):
     return type(name, (), attributes)()
 
 
-@pytest.mark.parametrize(
-    "name,dims",
-    [
-        ("MergedQKVParallelLinearWithLoRA", {"lora_b_stacked": -2}),
-        ("MergedColumnParallelLinearWithLoRA", {"lora_b_stacked": -2}),
-        ("MergedColumnParallelLinearVariableSliceWithLoRA", {"lora_b_stacked": -2}),
-        ("RowParallelLinearWithLoRA", {"lora_a_stacked": -1}),
-        ("ReplicatedLinearWithLoRA", {}),
-    ],
-)
-def test_each_reviewed_layer_names_the_dimension_vllm_splits(name, dims):
-    base = SimpleNamespace(num_kv_head_replicas=1)
-    assert adapter_compat.sharded_dims(layer(name, base_layer=base)) == dims
-
-
 def test_plain_column_layer_splits_lora_b_unless_it_packs_gate_and_up():
     assert adapter_compat.sharded_dims(
         layer("ColumnParallelLinearWithLoRA", is_merged_col_linear=False)

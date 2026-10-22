@@ -29,7 +29,7 @@ DUPLICATED_HELPERS = {
 def test_tests_do_not_import_other_test_modules():
     offenders = [
         f"{path.relative_to(ROOT)}:{line}"
-        for path in test_files()
+        for path in collected_test_files()
         for line, module in imported_modules(path)
         if module.split(".")[-1].startswith("test_")
     ]
@@ -38,7 +38,7 @@ def test_tests_do_not_import_other_test_modules():
 
 def test_tests_assert_behavior_not_attribute_presence():
     needle = "assert " + "hasattr("  # Split so this file does not match itself.
-    offenders = [str(p.relative_to(ROOT)) for p in test_files() if needle in text(p)]
+    offenders = [str(p.relative_to(ROOT)) for p in collected_test_files() if needle in text(p)]
     assert offenders == []
 
 
@@ -130,7 +130,7 @@ def production_files() -> list[Path]:
     )
 
 
-def test_files() -> list[Path]:
+def collected_test_files() -> list[Path]:
     return sorted(ROOT.rglob("test_*.py"))
 
 

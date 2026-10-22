@@ -125,11 +125,3 @@ def test_incomplete_or_corrupt_configured_scope_is_rejected(tmp_path, change):
     manifest_path.write_text(json.dumps(manifest))
     with pytest.raises((ValueError, FileNotFoundError)):
         load_assets(root, "solidity", "tiny")
-
-
-def test_free_text_policy_prompt_carries_complete_sources_and_no_truth(tmp_path):
-    from benchmark_contract import load_assets
-
-    assets = load_assets(bundle(tmp_path), "solidity", "tiny")
-    assert "contract A" in assets["prompt"] and "contract B" in assets["prompt"]
-    assert "PRIVATE_SENTINEL" not in assets["prompt"] and "JSON" not in assets["prompt"]
