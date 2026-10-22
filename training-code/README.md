@@ -16,7 +16,8 @@ in `../private/` (not in git; start with its README).
 | `launch-cycle.sh` | One cycle: rollout → grading → update → acceptance. |
 | `launch-evaluation.sh` | One free-text evaluation of one project (e.g. a frozen base run). |
 | `launch-benchmark-suite.sh` | Final evaluation: every project's trained arm in one vLLM engine, graded per project, reported. |
-| `launch-lib.sh` | Shared mounts, environment, deadline timer and live-container exec. |
+| `launch-lib.sh` | Shared mounts (host `runs/` is `/results` in containers), environment, deadline timer and live-container exec. |
+| `publish-results.sh`, `inference/published_results.py` | Publishes one model's finished project runs as `results/<model>/results.json` and rebuilds the `results/README.md` table. |
 | `controller.py` | Phases `launch-training.sh` calls: `prepare`, `next`, `record`, `identity`, ... |
 | `schedules.py`, `schedules.json` | The reviewed schedules: shared defaults plus per-schedule overrides. |
 | `cycle_contract.py`, `cycle_scope.json` | Validates a cycle config and decides acceptance (14 conditions). |
@@ -62,14 +63,14 @@ directory. The launchers exit 2 without it.
 1. Add the schedule to `schedules.json` (`training_cutoff`, `final_deadline`, `training`
    steps and group limits; anything unset takes `defaults`). An unregistered
    `schedule_id` is rejected.
-2. Write `results/RUN/config.json` with that `schedule_id`, the starting checkpoint and
+2. Write `runs/RUN/config.json` with that `schedule_id`, the starting checkpoint and
    its adapter hash, dataset paths, `hf_repo` and `judge_env_file`.
 3. Freeze and launch:
 
 ```bash
 python3 training-code/provenance.py
-cp training-code/SOURCE_SHA256SUMS results/RUN/
-bash training-code/launch-training.sh results/RUN results/RUN/config.json
+cp training-code/SOURCE_SHA256SUMS runs/RUN/
+bash training-code/launch-training.sh runs/RUN runs/RUN/config.json
 ```
 
 Do not edit `training-code/` while a run is live: every visit re-verifies the hashes.
@@ -161,3 +162,11 @@ judge prompt or source scope differ, so the arms differ only in their weights.
 (`rollout.py evaluate-suite`): the merged weights load once and each request keeps its own
 seed and output allowance. One receipt, `rollout-receipt.json`, records the shared call's
 duration. Reasoning effort is `medium` or `xhigh` (the pinned template has no `high`), four draws per arm.
+
+Publishing: `bash training-code/publish-results.sh NAME ARM RUN_DIRECTORY...` reads each finished
+project run's `comparison.json`, `prepared.json` and the arm's receipt and samples, and writes
+`results/NAME/results.json`: known vulnerabilities matched exactly (or only partially) in any
+draw, each counted once; every finding all draws reported; precision (exact / findings), recall
+(exact / known) and F1 per project and pooled; and reasoning and answer tokens per draw. It then rebuilds the
+`results/README.md` table from every published model. It refuses ungraded draws, projects that
+differ in model, effort, draws or weights, and an existing NAME.

@@ -103,7 +103,7 @@ def test_launcher_verifies_fresh_results_on_ephemeral_disk_before_any_worker(tmp
     code.mkdir(parents=True)
     shutil.copyfile(Path(__file__).with_name(launcher), code / launcher)
     shutil.copyfile(Path(__file__).with_name("launch-lib.sh"), code / "launch-lib.sh")
-    results = tmp_path / "runtime/results"
+    results = tmp_path / "runtime/runs"
     results.mkdir()
     disk = tmp_path / "ephemeral/run"
     disk.mkdir(parents=True)
@@ -206,7 +206,7 @@ def run_config(tmp_path, **changes):
     """A run config whose result directories land under tmp_path."""
     (tmp_path / "run").mkdir(exist_ok=True)
     (tmp_path / "run/SOURCE_SHA256SUMS").write_text("frozen\n")
-    for name in ("artifacts", "runtime/results"):
+    for name in ("artifacts", "runtime/runs"):
         (tmp_path / name).mkdir(parents=True, exist_ok=True)
     config = {
         "run_id": "run",
@@ -237,7 +237,7 @@ def test_next_cycle_builds_the_next_single_step_from_the_accepted_checkpoint(tmp
     monkeypatch.setattr(controller, "seconds_until", lambda _deadline: 40 * 3600)
     roomy_disk(monkeypatch, 1000)
     config = run_config(tmp_path)
-    out = tmp_path / "runtime/results/run"
+    out = tmp_path / "runtime/runs/run"
     out.mkdir()
     state = {
         "visits": [{"root": "v1", "seconds": 1200, "all_truncated": False}],
@@ -250,7 +250,7 @@ def test_next_cycle_builds_the_next_single_step_from_the_accepted_checkpoint(tmp
     (out / "schedule.json").write_text(json.dumps(["first", "second"]))
     write_requests(out, "second")
     root = Path(controller.next_cycle(config, out))
-    assert root == tmp_path / "runtime/results/run-visit-002"
+    assert root == tmp_path / "runtime/runs/run-visit-002"
     written = json.loads((root / "config.json").read_text())
     assert written["row_id"] == "second"
     assert (written["initial_step"], written["target_step"]) == (5, 6)
@@ -394,7 +394,7 @@ def test_next_cycle_refuses_to_start_a_visit_below_the_free_space_minimum(tmp_pa
     minimum = schedules.schedule(DAY)["storage"]["minimum_free_gib"]
     roomy_disk(monkeypatch, minimum - 1)
     config = run_config(tmp_path)
-    out = tmp_path / "runtime/results/run"
+    out = tmp_path / "runtime/runs/run"
     out.mkdir()
     state = {"visits": [], "current_step": 5, "completion_gate": False}
     (out / "state.json").write_text(json.dumps(state))
@@ -403,7 +403,7 @@ def test_next_cycle_refuses_to_start_a_visit_below_the_free_space_minimum(tmp_pa
     with pytest.raises(OSError, match=rf"{minimum - 1}\.0 GiB free, {minimum} GiB required"):
         controller.next_cycle(config, out)
     assert not (out / "pending-training.json").exists()
-    assert not (tmp_path / "runtime/results/run-visit-001").exists()
+    assert not (tmp_path / "runtime/runs/run-visit-001").exists()
 
 
 def test_prune_phase_appends_what_it_freed_to_the_runs_retention_record(tmp_path):
@@ -534,7 +534,7 @@ def final_evaluation_run(tmp_path):
     config = run_config(
         tmp_path, judge_ledgers={"evaluation": "/results/run/evaluation-ledger.json"}
     )
-    out = tmp_path / "runtime/results/run"
+    out = tmp_path / "runtime/runs/run"
     out.mkdir()
     state = {
         "current_step": 7,
@@ -549,7 +549,7 @@ def test_final_evaluation_runs_only_the_trained_arm_against_the_frozen_base(tmp_
     from benchmark_free_text import validate_config
 
     config, out = final_evaluation_run(tmp_path)
-    pattern, hashes = write_frozen_base_runs(tmp_path / "runtime/results")
+    pattern, hashes = write_frozen_base_runs(tmp_path / "runtime/runs")
     reviewed = schedules.scope(config)
     state = json.loads((out / "state.json").read_text())
     [suite_root] = panels.evaluation_configs(config, out)
@@ -562,9 +562,9 @@ def test_final_evaluation_runs_only_the_trained_arm_against_the_frozen_base(tmp_
         assert project["known_gt_count"] == 3
         assert project["base_run_root"] == f"/results/{base_run}"
         child = json.loads(
-            (tmp_path / "runtime/results" / project["run_id"] / "config.json").read_text()
+            (tmp_path / "runtime/runs" / project["run_id"] / "config.json").read_text()
         )
-        frozen = json.loads((tmp_path / "runtime/results" / base_run / "prepared.json").read_text())
+        frozen = json.loads((tmp_path / "runtime/runs" / base_run / "prepared.json").read_text())
         validate_config(child)
         assert child["cases"] == [panels.trained_case(state)]
         assert child["generation_order"] == ["checkpoint-7"]
@@ -581,7 +581,7 @@ def test_final_evaluation_runs_only_the_trained_arm_against_the_frozen_base(tmp_
 
 def test_final_evaluation_needs_every_frozen_base_before_writing_anything(tmp_path):
     config, out = final_evaluation_run(tmp_path)
-    write_frozen_base_runs(tmp_path / "runtime/results", skip="tigris")
+    write_frozen_base_runs(tmp_path / "runtime/runs", skip="tigris")
     with pytest.raises(FileNotFoundError, match=r"comparison\.json"):
         panels.evaluation_configs(config, out)
     assert not list((tmp_path / "artifacts").iterdir())
@@ -592,8 +592,8 @@ def test_final_evaluation_needs_every_frozen_base_before_writing_anything(tmp_pa
 )
 def test_final_evaluation_refuses_frozen_bases_that_differ_in_effort_or_draws(tmp_path, key, value):
     config, out = final_evaluation_run(tmp_path)
-    pattern, _ = write_frozen_base_runs(tmp_path / "runtime/results")
-    prepared = tmp_path / "runtime/results" / pattern.format(project="phi") / "prepared.json"
+    pattern, _ = write_frozen_base_runs(tmp_path / "runtime/runs")
+    prepared = tmp_path / "runtime/runs" / pattern.format(project="phi") / "prepared.json"
     frozen = json.loads(prepared.read_text())
     prepared.write_text(json.dumps({**frozen, key: {**frozen[key], **value}}))
     with pytest.raises(ValueError, match="Frozen base runs differ"):

@@ -112,7 +112,8 @@ frameworks when distributed execution and rollout scheduling justify the migrati
 | `images/` | Dockerfile, locks and build script for the pinned runtime images. See [HOST_SETUP.md](HOST_SETUP.md). |
 | `diagnostic-tools/`, `backup-tools/` | Standalone utilities: checkpoint merge and comparison, checkpoint backup. `merge_checkpoint.py` is called by `launch-training.sh`. |
 | `archive/` | Finished-experiment code and the original extraction provenance. Read-only. |
-| `results/` | Run configs, receipts, grades, model output and reports: dated evidence (not in git). |
+| `results/` | Published results only: `README.md` (the results table) and one `<model>/results.json` per evaluated model, written by `training-code/publish-results.sh` (not in git). |
+| `runs/` | Every run's configs, receipts, grades, model output and reports, plus the inputs runs read (benchmark assets, corpus, checkpoints): dated evidence, mounted as `/results` in containers (not in git). |
 | `workspace/` | Frozen backend snapshot used as `/workspace` (not in git). |
 | `live-status.sh` | Containers, GPU memory and the newest run's accepted checkpoint. |
 | `HOST_SETUP.md` | Preparing a new GPU host: requirements, restore from backup, images, checks. |
@@ -142,5 +143,5 @@ restricted file outside it and name that file in the run config (`judge_env_file
 
 This directory is a local git repository with no remote; the parent `ai-auditor`
 repository ignores `backend/scripts/finetuning/`. [.gitignore](.gitignore) keeps out
-secrets, `private/`, `results/`, `workspace/`, model weights and archives, and logs.
+secrets, `private/`, `results/`, `runs/`, `workspace/`, model weights and archives, and logs.
 Check `git status --ignored` before any push.

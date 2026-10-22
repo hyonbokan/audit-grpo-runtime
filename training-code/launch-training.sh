@@ -9,8 +9,8 @@ run_root=$(realpath -s -- "${1:?$usage}")
 config=$(realpath -s -- "${2:?$usage}")
 resume=0
 if [[ "${3:-}" == --resume ]]; then resume=1; elif [[ -n "${3:-}" ]]; then echo "$usage" >&2; exit 2; fi
-[[ "$run_root" == "$runtime_root/results/"* && "$config" == "$run_root/"* ]] || {
-  echo "The run must be under $runtime_root/results and its config inside the run directory" >&2
+[[ "$run_root" == "$runtime_root/runs/"* && "$config" == "$run_root/"* ]] || {
+  echo "The run must be under $runtime_root/runs and its config inside the run directory" >&2
   exit 2
 }
 if ((resume)); then
@@ -38,7 +38,7 @@ container_out="/results/$(basename -- "$run_root")"
 pythonpath=/training-code:/training-code/inference:/workspace/code/backend
 # The controller writes result directories under the host runtime path, so it mounts it read-write.
 controller_mounts=(-v "$code_root:/training-code:ro" -v "$runtime_root:$runtime_root"
-  -v "$runtime_root/results:/results" -v "$FROZEN_WORKSPACE:/workspace:ro"
+  -v "$runtime_root/runs:/results" -v "$FROZEN_WORKSPACE:/workspace:ro"
   -v "$CACHE:$CACHE" -v "$CACHE:/workspace/cache"
   -v "$config:/training-config.json:ro" -v "$runtime_root/diagnostic-tools:/diagnostic-tools:ro")
 cpu() {

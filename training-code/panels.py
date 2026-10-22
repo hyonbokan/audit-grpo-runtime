@@ -53,7 +53,7 @@ def evaluation_configs(config: dict, out: Path) -> list[str]:
     reviewed = scope(config)
     state = read_json(out / "state.json")
     case = trained_case(state)
-    results = Path(config["runtime_host"]) / "results"
+    results = Path(config["runtime_host"]) / "runs"
     references = {}
     for name in evaluation_projects():
         base_run = reviewed["evaluation_base_reference"].format(project=name)

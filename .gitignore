@@ -13,6 +13,7 @@ private/
 
 # Run evidence, model output and data; it stays on the rental and in private backups.
 results/
+runs/
 workspace/
 test-tools/
 archive/provenance/

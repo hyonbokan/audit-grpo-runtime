@@ -16,11 +16,12 @@ CACHE=${AUDIT_GRPO_CACHE:?host.env must set AUDIT_GRPO_CACHE to an absolute cach
 # The cache mounts inside the read-only workspace, where Docker cannot create the mountpoint.
 mkdir -p "$FROZEN_WORKSPACE/cache"
 
-# Worker mounts and environment; a launcher appends its config mount.
+# Worker mounts and environment; a launcher appends its config mount. Host runs/ is /results in
+# containers, the path every run config records.
 mounts=(-v "$code_root:/training-code:ro" -v "$runtime_root:/runtime:ro"
   -v "$FROZEN_WORKSPACE:/workspace:ro"
   -v "$CACHE:/workspace/cache" -v "$CACHE:$CACHE"
-  -v "$runtime_root/results:/results")
+  -v "$runtime_root/runs:/results")
 environment=(-e PYTHONPATH=/training-code:/training-code/inference:/workspace/code/backend
   -e PYTHONDONTWRITEBYTECODE=1 -e OMP_NUM_THREADS=1
   -e HF_HUB_OFFLINE=1 -e HF_HUB_DISABLE_TELEMETRY=1
@@ -63,7 +64,7 @@ remaining() {
 
 # Deadline timers: a detached watchdog per run stops the named containers at the deadline,
 # even if the launcher shell dies. It needs no root or systemd, so it works on any host.
-DEADLINE_TIMERS="$runtime_root/results/deadline-timers"
+DEADLINE_TIMERS="$runtime_root/runs/deadline-timers"
 
 # The record holds the watchdog's pid, the epoch second it fires and the containers.
 start_deadline_timer() {

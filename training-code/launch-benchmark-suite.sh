@@ -7,8 +7,8 @@ code_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 runtime_root=$(dirname -- "$code_root")
 run_root=$(realpath -s -- "${1:?Suite result directory required}")
 config_path=$(realpath -s -- "${2:?Suite configuration required}")
-[[ "$run_root" == "$runtime_root/results/"* && "$config_path" == "$run_root/"* ]] || {
-  echo "The suite must be under $runtime_root/results and its config inside it" >&2
+[[ "$run_root" == "$runtime_root/runs/"* && "$config_path" == "$run_root/"* ]] || {
+  echo "The suite must be under $runtime_root/runs and its config inside it" >&2
   exit 2
 }
 [[ -z "$(nvidia-smi --query-compute-apps=pid --format=csv,noheader)" ]] || {
@@ -67,7 +67,7 @@ for project in "${projects[@]}"; do
     "${mounts[@]}" "${environment[@]}" "$native_image" /opt/pilot/gpu/bin/python \
     /training-code/inference/benchmark_evaluation.py prepare \
     --config "/results/$project/config.json" --out "/results/$project" \
-    > "$runtime_root/results/$project/prepare.log" 2>&1
+    > "$runtime_root/runs/$project/prepare.log" 2>&1
 done
 
 phase=rollout
@@ -83,7 +83,7 @@ timeout --foreground -k 10 "$(remaining)s" docker run --name "$prefix-rollout" \
 phase=grading
 sync_live_code
 for project in "${projects[@]}"; do
-  host="$runtime_root/results/$project"
+  host="$runtime_root/runs/$project"
   child="/results/$project"
   left=$(remaining)
   limit=$judge_seconds
