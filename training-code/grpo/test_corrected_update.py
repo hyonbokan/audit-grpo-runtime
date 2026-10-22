@@ -116,3 +116,18 @@ def test_invalid_group_cannot_change_weights_or_optimizer_state(bad, guard):
         )
     assert not optimizer.state
     assert all(torch.equal(a, b) for a, b in zip(before, parameters, strict=True))
+
+
+def test_update_joins_only_four_known_rewards_to_the_selected_row_and_weight():
+    config = {"row_id": "selected/all-scope"}
+    samples = [{"row_id": config["row_id"], "weight_version": "step-2:digest"}] * 4
+    group = corrected_update.join_update_group(config, samples, [1, 0, 1, -1], "step-2:digest")
+    assert [sample["reward"] for sample in group] == [1, 0, 1, -1]
+    for rewards in ([1, 0, None, -1], [1, 0, float("nan"), -1], [1, 0]):
+        with pytest.raises(ValueError):
+            corrected_update.join_update_group(config, samples, rewards, "step-2:digest")
+    with pytest.raises(ValueError):
+        corrected_update.join_update_group(config, samples, [1, 0, 1, -1], "step-3:stale")
+    other_row = [{"row_id": "other/all-scope", "weight_version": "step-2:digest"}] * 4
+    with pytest.raises(ValueError, match="row"):
+        corrected_update.join_update_group(config, other_row, [1, 0, 1, -1], "step-2:digest")

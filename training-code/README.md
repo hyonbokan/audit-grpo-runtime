@@ -45,9 +45,7 @@ corpus, sampler probes, extraction provenance) is in `../archive/`, not maintain
 ```bash
 bash training-code/run-tests.sh            # rental: CPU suites in the pinned images
 bash training-code/run-tests-local.sh      # workstation: local amd64 deps image under emulation
-bash training-code/run-tests.sh judge      # one suite: judge (Python 3.14) or native
-bash training-code/test_live_status.sh     # offline check of ../live-status.sh
-bash training-code/test_preflight.sh       # offline check of ../preflight.sh driver rule
+bash training-code/run-tests.sh judge      # one suite: judge (Python 3.14), native, or shell
 ```
 
 Neither runs GPU work, network calls or paid judging. Every listed test must pass; there

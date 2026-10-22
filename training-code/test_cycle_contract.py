@@ -242,29 +242,6 @@ def test_preparation_carries_explicit_dotenv_path_to_training_worker(tmp_path, m
     assert plan["judge_env_file"] == "/opt/audit-grpo-secrets/judge.env"
 
 
-def test_update_rejects_another_rows_samples_even_if_rewards_and_weights_match():
-    from grpo.corrected_update import join_update_group
-
-    config = continuation_config()
-    samples = [{"row_id": "other/all-scope", "weight_version": "step-2:digest"}] * 4
-    with pytest.raises(ValueError, match="row"):
-        join_update_group(config, samples, [1, 0, 1, -1], "step-2:digest")
-
-
-def test_update_joins_only_four_known_rewards_to_the_selected_row_and_weight():
-    from grpo.corrected_update import join_update_group
-
-    config = continuation_config()
-    samples = [{"row_id": config["row_id"], "weight_version": "step-2:digest"}] * 4
-    group = join_update_group(config, samples, [1, 0, 1, -1], "step-2:digest")
-    assert [sample["reward"] for sample in group] == [1, 0, 1, -1]
-    for rewards in ([1, 0, None, -1], [1, 0, float("nan"), -1], [1, 0]):
-        with pytest.raises(ValueError):
-            join_update_group(config, samples, rewards, "step-2:digest")
-    with pytest.raises(ValueError):
-        join_update_group(config, samples, [1, 0, 1, -1], "step-3:stale")
-
-
 def test_acceptance_rejects_samples_from_a_row_outside_the_frozen_step(tmp_path):
     from cycle_contract import finish_cycle
 
@@ -366,3 +343,19 @@ def test_a_cycle_cannot_change_the_reviewed_tensor_parallel_size(split_schedule)
     split_schedule["engine"]["tensor_parallel_size"] = 1
     with pytest.raises(ValueError, match="tensor_parallel_size"):
         cycle_contract.validate_config(split_schedule)
+
+
+def test_low_prompt_cannot_be_relabelled_as_an_xhigh_training_request():
+    c = {"policy_reasoning_effort": "xhigh", "sampling": {"max_tokens": 32768}}
+    plan = {"sampling_profile": {"policy_reasoning_effort": "xhigh"}}
+    request = {
+        "template_options": {"enable_thinking": True, "reasoning_effort": "low"},
+        "full_completion_ceiling": 32768,
+    }
+    with pytest.raises(ValueError, match="reasoning"):
+        cycle_contract.validate_policy_profile(c, request, plan)
+    request["template_options"]["reasoning_effort"] = "xhigh"
+    cycle_contract.validate_policy_profile(c, request, plan)
+    request["full_completion_ceiling"] = 16384
+    with pytest.raises(ValueError, match="ceiling"):
+        cycle_contract.validate_policy_profile(c, request, plan)
