@@ -1,4 +1,4 @@
-"""The training controller: visit configs, visit records, identity and evaluation."""
+"""The training controller: visit configs, visit records, backups, identity and evaluation."""
 
 import hashlib
 import json
@@ -472,6 +472,35 @@ def test_prune_phase_appends_what_it_freed_to_the_runs_retention_record(tmp_path
     assert (oldest / "adapter_model.safetensors").is_file()
     controller.phase_prune({"schedule_id": DAY}, out, 1)
     assert len(json.loads((out / "retention.json").read_text())) == 2
+
+
+def backup_receipt(out, label, visits, status="complete_resumable_archive_download_verified"):
+    path = out / f"backup-{label}-receipt.json"
+    path.write_text(json.dumps({"status": status, "visits": visits}))
+
+
+def test_a_visit_backup_is_due_once_the_interval_of_new_visits_has_passed(tmp_path):
+    out = tmp_path / "run"
+    out.mkdir()
+    interval = schedules.scope({"schedule_id": DAY})["storage"]["visit_backup_interval"]
+    assert interval == 5
+    backup_receipt(out, "initial", 0)
+    due = []
+    for count in range(1, 12):
+        (out / "state.json").write_text(json.dumps({"visits": [{}] * count}))
+        due.append(controller.phase_backup_due({"schedule_id": DAY}, out, 1) == ["true"])
+        if due[-1]:
+            backup_receipt(out, f"visit-{count:03d}", count)
+    assert [count for count, value in enumerate(due, start=1) if value] == [5, 10]
+
+
+def test_a_failed_visit_backup_leaves_the_backup_due(tmp_path):
+    out = tmp_path / "run"
+    out.mkdir()
+    backup_receipt(out, "initial", 0)
+    backup_receipt(out, "visit-005", 5, status="failed")
+    (out / "state.json").write_text(json.dumps({"visits": [{}] * 6}))
+    assert controller.phase_backup_due({"schedule_id": DAY}, out, 1) == ["true"]
 
 
 def write_merge(merged, adapter_sha256):

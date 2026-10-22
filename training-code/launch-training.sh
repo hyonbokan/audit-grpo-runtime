@@ -166,12 +166,15 @@ while true; do
       break
     fi
     cpu record-failure --attempts "$attempts" >> "$run_root/training-record.log"
-    visit_backup "visit-$(basename -- "$folder")"
+    due=$(cpu backup-due)
+    [[ "$due" != true ]] || visit_backup "visit-$(basename -- "$folder")"
     prune
     continue
   fi
   cpu record >> "$run_root/training-record.log"
-  visit_backup "visit-$(basename -- "$folder")"
+  # Thin backups cover every visit since the last verified one, so skipping some loses none.
+  due=$(cpu backup-due)
+  [[ "$due" != true ]] || visit_backup "visit-$(basename -- "$folder")"
   prune
 done
 printf '%s\n' "$training_status" > "$run_root/training-exit.txt"

@@ -131,6 +131,7 @@ def test_a_failed_visit_backup_is_reported_but_does_not_end_training(runtime):
             "-m controller next": runtime.one_visit_then_complete(),
             "-m controller failure-policy": 'printf "1\\n1\\n"',
             "-m controller identity": NOT_TRAINED,
+            "-m controller backup-due": "echo true",
             '-m hf_backup"*"--label visit-': "exit 1",
         }
     )
@@ -151,6 +152,7 @@ def test_every_recorded_visit_is_pruned_after_its_backup(runtime):
             "-m controller next": runtime.one_visit_then_complete(),
             "-m controller failure-policy": 'printf "1\\n1\\n"',
             "-m controller identity": NOT_TRAINED,
+            "-m controller backup-due": "echo true",
             "-m controller prune": 'echo \'{"files": 3, "bytes": 900}\'',
         }
     )
@@ -161,6 +163,25 @@ def test_every_recorded_visit_is_pruned_after_its_backup(runtime):
     assert upload < next(i for i, c in enumerate(calls) if "-m controller prune" in c)
     assert "--phase discard" not in runtime.docker_calls()
     assert runtime.read("retention.log") == '{"files": 3, "bytes": 900}'
+
+
+@pytest.mark.parametrize("cycle_status", [0, 1])
+def test_a_visit_is_backed_up_only_when_a_backup_is_due(runtime, cycle_status):
+    runtime.cycle(cycle_status)
+    runtime.docker(
+        {
+            "-m controller next": runtime.one_visit_then_complete(),
+            "-m controller failure-policy": 'printf "1\\n1\\n"',
+            "-m controller identity": NOT_TRAINED,
+            "-m controller backup-due": "echo false",
+        }
+    )
+    result = runtime.launch()
+    calls = runtime.docker_calls()
+    assert "-m controller backup-due" in calls, result.stdout + result.stderr
+    assert "--label visit-" not in calls
+    assert "-m controller prune" in calls
+    assert "--label training-final" in calls
 
 
 def test_a_failed_final_backup_stops_the_run_before_evaluation(runtime):

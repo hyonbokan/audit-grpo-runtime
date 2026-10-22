@@ -23,7 +23,7 @@ in `../private/` (not in git; start with its README).
 | `panels.py` | Final evaluation suite configs, built from the frozen base runs, and merge identity. |
 | `frozen_requests.py` | Freezes each training row's prompt tokens for a run. |
 | `progress.py` | Training order and the update/skip decision. |
-| `hf_backup.py` | Verified private HF backups (thin per visit, full at start and end). |
+| `hf_backup.py` | Verified private HF backups (thin every `visit_backup_interval` visits, full at start and end). |
 | `retention.py` | Disk retention: prunes resume state and adapter copies, releases evaluated merges, checks free space. |
 | `audited_corpus.py`, `corpus_*.py` | Builds the frozen training corpus from human-audit labels. |
 | `private/` | Not in git: the frozen policy rendering (production audit prompt and answer schema) that the corpus builder and reward worker hash. Copy it in before a run; both fail loudly without it. |
@@ -89,6 +89,10 @@ Do not edit `training-code/` while a run is live: every visit re-verifies the ha
   checkpoint. Exit 124 (deadline), 130 and 143 (operator stop) are never retried.
 - Checkpoints are written as `checkpoint-N.partial` and renamed when complete. The shared
   judge ledger is replaced atomically under `<ledger>.lock`.
+- A thin HF backup is uploaded once `storage.visit_backup_interval` visits have passed since
+  the last verified one (`controller backup-due`). It holds the newest adapter and every visit
+  record since that backup, so a failed or skipped upload loses no records; full backups
+  run at the start and end.
 
 ## GPU placement
 

@@ -9,6 +9,7 @@ import tarfile
 from datetime import UTC, datetime
 from pathlib import Path
 
+from runtime_io import read_json
 from runtime_io import save_json as save
 from runtime_io import sha256_file as digest
 
@@ -16,11 +17,18 @@ RESULTS_ROOT = Path("/results")
 # Per-visit weights and optimizer state are held once, in the checkpoint directory.
 HEAVY_NAMES = {"adapter_model.safetensors", "optimizer.pt"}
 RESUME_ONLY_NAMES = {"optimizer.pt", "scheduler.pt", "rng_state.pth"}
+VERIFIED_STATUS = "complete_resumable_archive_download_verified"
 
 
 def backup_kind(label: str) -> str:
     """Visit labels are thin per-visit records; initial and final labels are complete."""
     return "thin" if label.startswith("visit-") else "full"
+
+
+def backed_up_visits(run: Path) -> int:
+    """How many of the run's visits its newest verified backup covers."""
+    receipts = (read_json(path) for path in run.glob("backup-*-receipt.json"))
+    return max((r["visits"] for r in receipts if r["status"] == VERIFIED_STATUS), default=0)
 
 
 def copy_complete_tree(source: Path, target: Path, omit: frozenset | set = frozenset()) -> None:
@@ -98,7 +106,7 @@ def verify_resumable(checkpoint: Path, step: int, learning_rate: float) -> dict:
 def create_bundle(
     config: dict, run: Path, out: Path, source: Path, workspace: Path, kind: str = "full"
 ) -> dict:
-    """A thin bundle is one visit's record plus its adapter; a full bundle is resumable."""
+    """A thin bundle holds the visits since the last verified backup and the adapter."""
     thin = kind == "thin"
     state = json.loads((run / "state.json").read_text())
     checkpoint = Path(state["current_checkpoint"])
@@ -111,7 +119,7 @@ def create_bundle(
         if not thin:
             copy_complete_tree(child, out / "evaluation" / child.name)
     visits = state["visits"]
-    first = len(visits) - 1 if thin else 0
+    first = backed_up_visits(run) if thin else 0
     for index in range(first, len(visits)):
         path = RESULTS_ROOT / Path(visits[index]["root"]).name
         copy_complete_tree(path, out / "visits" / f"{index + 1:03d}", HEAVY_NAMES)
@@ -143,6 +151,7 @@ def create_bundle(
     return {
         "kind": kind,
         "step": state["current_step"],
+        "visits": len(visits),
         "adapter_sha256": state["current_adapter_sha256"],
         "files": files,
         "restore_check": evidence,
@@ -198,7 +207,7 @@ def upload_verified(bundle: Path, metadata: dict, config: dict, receipt_path: Pa
     if not api.repo_info(repo_id=repo, repo_type="model", revision=commit.oid).private:
         raise ValueError("Immutable recovery revision is not private")
     receipt = {
-        "status": "complete_resumable_archive_download_verified",
+        "status": VERIFIED_STATUS,
         **metadata,
         "archive_sha256": archive_sha,
         "bytes": archive.stat().st_size,

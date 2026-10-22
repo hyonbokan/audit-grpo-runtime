@@ -43,7 +43,7 @@ flowchart TD
     U --> A["Cycle acceptance checks"]
     A -->|"Pass"| K["Record accepted checkpoint"]
     D -->|"Skip when enabled"| S["Record visit; keep current checkpoint"]
-    K --> B["Visit backup and disk retention"]
+    K --> B["Periodic visit backup and disk retention"]
     S --> B
     B --> C
     K --> V["Final evaluation against the frozen base"]

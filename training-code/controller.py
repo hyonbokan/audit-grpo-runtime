@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from frozen_requests import extend_request, rerender_request
+from hf_backup import backed_up_visits
 from panels import evaluation_configs, merged_path
 from progress import training_order, verify_dataset
 from retention import prune_visits, release_merge, require_free_space
@@ -80,6 +81,15 @@ def phase_record_failure(config: dict, out: Path, attempts: int) -> list[str]:
     return [json.dumps(state["visits"][-1])]
 
 
+def phase_backup_due(config: dict, out: Path, _attempts: int) -> list[str]:
+    """Whether enough visits passed since the last verified backup to upload another."""
+    interval = scope(config)["storage"]["visit_backup_interval"]
+    if type(interval) is not int or interval < 1:
+        raise ValueError("storage.visit_backup_interval must be an integer of at least 1")
+    visits = len(read_json(out / "state.json")["visits"])
+    return [str(visits - backed_up_visits(out) >= interval).lower()]
+
+
 def phase_prune(config: dict, out: Path, _attempts: int) -> list[str]:
     """Free resume state and adapter copies no later phase reads; append the record."""
     state = read_json(out / "state.json")
@@ -119,6 +129,7 @@ PHASES = {
     "next": phase_next,
     "record": phase_record,
     "record-failure": phase_record_failure,
+    "backup-due": phase_backup_due,
     "prune": phase_prune,
     "identity": phase_identity,
     "evaluation": phase_evaluation,
