@@ -63,8 +63,8 @@ One document per purpose. Link to the owner instead of repeating it.
 |---|---|
 | Read or write JSON, hash files or bytes, current time, deadlines, result directories | `runtime_io.py` **(conventions)** |
 | Schedule limits, cutoffs, caps, rates, paths | `schedules.scope(config)` / `schedules.json` **(conventions)** |
-| Training order, update/skip decision, checkpoint selection | `progress.py` |
-| Validation and final-evaluation configs, merge identity | `panels.py` |
+| Training order, update/skip decision | `progress.py` |
+| Final-evaluation configs, merge identity | `panels.py` |
 | Prompt rendering, policy rows, judge contract | `grpo/policy_prompt.py` |
 | Request validation, sampled-batch capture | `inference/generation.py` |
 | Docker mounts, deadline timer, live-container exec | `launch-lib.sh` |

@@ -1,4 +1,4 @@
-"""The training controller: visit configs, visit records, identity and validation panels."""
+"""The training controller: visit configs, visit records, identity and evaluation."""
 
 import hashlib
 import json
@@ -167,29 +167,6 @@ def test_launcher_verifies_fresh_results_on_ephemeral_disk_before_any_worker(tmp
     assert not (binary / "docker-called").exists()
 
 
-def test_validation_waits_for_accepted_learning_and_preserves_training_time():
-    state = {"current_step": 2, "completion_gate": False, "last_validation_epoch": 0}
-    assert (
-        panels.validation_due(
-            state, schedules.scope(WEEKEND), now_epoch=100000, remaining_seconds=50000
-        )
-        is False
-    )
-    state.update(current_step=3, completion_gate=True)
-    assert (
-        panels.validation_due(
-            state, schedules.scope(WEEKEND), now_epoch=100000, remaining_seconds=50000
-        )
-        is True
-    )
-    assert (
-        panels.validation_due(
-            state, schedules.scope(WEEKEND), now_epoch=100000, remaining_seconds=10000
-        )
-        is False
-    )
-
-
 def test_evaluation_freezes_the_latest_actual_step_with_fresh_xhigh_base(tmp_path):
     state = {
         "current_step": 7,
@@ -261,7 +238,7 @@ def test_next_cycle_resumes_an_unrecorded_pending_visit(tmp_path, monkeypatch):
     assert controller.next_cycle(run_config(tmp_path), tmp_path) == pending
 
 
-# --- Visits, identity and validation panels
+# --- Visits and identity
 
 DAY = "medium-day-20261010"
 
@@ -451,37 +428,6 @@ def test_prepare_starts_at_the_configured_checkpoint_without_learning(tmp_path):
         controller.prepare(config, out)
 
 
-def test_validation_panels_carry_the_runs_own_schedule(tmp_path, monkeypatch):
-    monkeypatch.setattr(panels, "seconds_until", lambda _deadline: 100000)
-    config = run_config(tmp_path, validation_row_ids=["held-out"])
-    reviewed = schedules.schedule(DAY)
-    out = tmp_path / "runtime/results/run"
-    out.mkdir()
-    state = {
-        "current_step": 4,
-        "current_checkpoint": "/results/cp4",
-        "current_adapter_sha256": "4" * 64,
-        "completion_gate": True,
-        "validation_history": [],
-        "last_validation_epoch": 0,
-    }
-    (out / "state.json").write_text(json.dumps(state))
-    write_requests(out, "held-out", prompt_tokens=20000)
-    folders = [Path(folder) for folder in panels.validation_configs(config, out)]
-    assert json.loads((out / "pending-validation.json").read_text()) == [str(f) for f in folders]
-    labels = []
-    for folder in folders:
-        panel = json.loads((folder / "config.json").read_text())
-        assert panel["weekend_schedule_id"] == DAY
-        assert schedules.scope(panel)["schedule_id"] == DAY
-        assert "schedule_id" not in panel and "continuation_schedule" not in panel
-        assert panel["seconds_limit"] == reviewed["validation_seconds_limit"]
-        assert panel["judge_operation_cap_usd"] == reviewed["validation_judge_cap_usd"]
-        assert panel["sampling"]["max_tokens"] == reviewed["maximum_context"] - 20000
-        labels.extend(case["label"] for case in panel["cases"])
-    assert labels == ["checkpoint-3", "checkpoint-4"]
-
-
 # --- Disk retention
 
 
@@ -531,45 +477,11 @@ def test_prune_phase_appends_what_it_freed_to_the_runs_retention_record(tmp_path
     assert len(json.loads((out / "retention.json").read_text())) == 2
 
 
-def write_validation(root, merged, checkpoint, row_id):
-    root.mkdir(parents=True)
-    case = {"label": "checkpoint-4", "checkpoint": checkpoint, "initial_step": 4}
-    config = {"cases": [case], "merged_model_path": str(merged)}
-    (root / "config.json").write_text(json.dumps(config))
-    metrics = {
-        "row_id": row_id,
-        "exact_coverage": 0.5,
-        "partial_coverage": 0.5,
-        "format_validity": 1.0,
-        "unknown_draws": 0,
-    }
-    (root / "comparison.json").write_text(json.dumps({"metrics": metrics}))
-
-
 def write_merge(merged, adapter_sha256):
     merged.mkdir(parents=True)
     manifest = {"status": "merged_and_verified", "adapter_sha256": adapter_sha256, "files": {}}
     (merged / "MERGE_MANIFEST.json").write_text(json.dumps(manifest))
     (merged / "model.safetensors").write_bytes(b"w" * 50)
-
-
-def test_recorded_validation_releases_its_merge_and_keeps_the_manifest(tmp_path):
-    out = tmp_path / "run"
-    out.mkdir()
-    merged = tmp_path / "cache/merges/run-step-4-444444444444"
-    write_merge(merged, "4" * 64)
-    folders = [tmp_path / f"run-validation-00-checkpoint-4-{i}" for i in range(2)]
-    for index, folder in enumerate(folders):
-        write_validation(folder, merged, "/results/cp4", f"held-out-{index}")
-    (out / "pending-validation.json").write_text(json.dumps([str(f) for f in folders]))
-    state = {"validation_history": [], "last_validation_epoch": 0}
-    (out / "state.json").write_text(json.dumps(state))
-    controller.phase_record_validation({"schedule_id": DAY}, out, 1)
-    assert not merged.exists()
-    receipt = json.loads((out / "merge-receipts" / f"{merged.name}.json").read_text())
-    assert (receipt["bytes"], receipt["manifest"]["adapter_sha256"]) == (50 + 132, "4" * 64)
-    recorded = json.loads((out / "state.json").read_text())["validation_history"]
-    assert recorded[0]["panel"]["row_ids"] == ["held-out-0", "held-out-1"]
 
 
 def test_release_final_merge_deletes_the_evaluated_checkpoints_merge(tmp_path, monkeypatch):

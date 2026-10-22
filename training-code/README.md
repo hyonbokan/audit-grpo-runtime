@@ -14,15 +14,15 @@ in `../private/` (not in git; start with its README).
 |---|---|
 | `launch-training.sh` | Multi-visit run: prepare, one cycle per visit, backups, merge, final evaluation. |
 | `launch-cycle.sh` | One cycle: rollout → grading → update → refresh → acceptance. |
-| `launch-evaluation.sh` | One matched evaluation (validation panel or native benchmark). |
+| `launch-evaluation.sh` | One matched evaluation of one project (native benchmark). |
 | `launch-benchmark-suite.sh` | Runs `launch-evaluation.sh` per held-out project and writes the report. |
 | `launch-lib.sh` | Shared mounts, environment, deadline timer and live-container exec. |
 | `controller.py` | Phases `launch-training.sh` calls: `prepare`, `next`, `record`, `identity`, ... |
 | `schedules.py`, `schedules.json` | The reviewed schedules: shared defaults plus per-schedule overrides. |
 | `cycle_contract.py`, `cycle_scope.json` | Validates a cycle config and decides acceptance (14 conditions). |
-| `panels.py` | Validation panels during training and the final evaluation suite configs. |
+| `panels.py` | Final evaluation suite configs and merge identity. |
 | `frozen_requests.py` | Freezes each training row's prompt tokens for a run. |
-| `progress.py` | Training order, update/skip decision, checkpoint selection. |
+| `progress.py` | Training order and the update/skip decision. |
 | `hf_backup.py` | Verified private HF backups (thin per visit, full at start and end). |
 | `retention.py` | Disk retention: prunes resume state and adapter copies, releases evaluated merges, checks free space. |
 | `audited_corpus.py`, `corpus_*.py` | Builds the frozen training corpus from human-audit labels. |
@@ -119,8 +119,7 @@ Nothing has to be cleaned by hand during a run; the policy is `storage` in `sche
   resume-only files (`optimizer.pt`, `scheduler.pt`, `rng_state.pth`) of every accepted
   checkpoint except the newest `resume_states_kept`. Adapters are never deleted. Each
   deletion is appended to the run's `retention.json`.
-- Merged models are deleted once evaluated: validation merges in `record-validation`,
-  the final merge after the benchmark suite. The `MERGE_MANIFEST.json` is kept in the
+- The final merge is deleted after the benchmark suite. The `MERGE_MANIFEST.json` is kept in the
   run's `merge-receipts/`; `launch-training.sh` re-merges from the adapter if needed again.
 - A failed visit upload discards its local staging bundle; the visit itself stays on disk.
 - `controller next` refuses to start or resume a visit when the run, artifact or merge
@@ -142,7 +141,6 @@ Nothing has to be cleaned by hand during a run; the policy is `storage` in `sche
 ## Evaluation
 
 `launch-evaluation.sh` picks the module from the config's `evaluation_kind`:
-`grpo_held_out_panel` → `inference/panel_evaluation.py`,
 `native_solidity_benchmark` → `inference/benchmark_evaluation.py`, otherwise
 `inference/evaluation.py`. Invalid or truncated answers stay unknown, never zero.
 Healed (parser-recovered) results are a separate protocol and are never pooled with strict ones.

@@ -106,14 +106,10 @@ def create_bundle(
         raise ValueError("Latest accepted adapter changed before backup")
     out.mkdir(parents=True, exist_ok=False)
     copy_complete_tree(checkpoint, out / "checkpoint", RESUME_ONLY_NAMES if thin else set())
-    best = state.get("best_validation", {}).get("checkpoint")
-    if best and best != state["current_checkpoint"] and not thin:
-        copy_complete_tree(Path(best), out / "best-validation-checkpoint")
     copy_complete_tree(run, out / "experiment")
-    for child in sorted(run.parent.glob(run.name + "-*")):
-        for role in ("evaluation", "validation"):
-            if child.name.startswith(run.name + "-" + role) and not thin:
-                copy_complete_tree(child, out / role / child.name)
+    for child in sorted(run.parent.glob(run.name + "-evaluation*")):
+        if not thin:
+            copy_complete_tree(child, out / "evaluation" / child.name)
     visits = state["visits"]
     first = len(visits) - 1 if thin else 0
     for index in range(first, len(visits)):

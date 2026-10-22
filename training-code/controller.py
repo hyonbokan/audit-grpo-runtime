@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from frozen_requests import extend_request, rerender_request
-from panels import evaluation_configs, merged_path, record_validation, validation_configs
+from panels import evaluation_configs, merged_path
 from progress import training_order, verify_dataset
 from retention import prune_visits, release_merge, require_free_space
 from runtime_io import new_result_dir, read_json, save_json, seconds_until, sha256_file, utc_now
@@ -80,21 +80,6 @@ def phase_record_failure(config: dict, out: Path, attempts: int) -> list[str]:
     return [json.dumps(state["visits"][-1])]
 
 
-def phase_validation(config: dict, out: Path, _attempts: int) -> list[str]:
-    return validation_configs(config, out)
-
-
-def phase_record_validation(config: dict, out: Path, _attempts: int) -> list[str]:
-    record_validation(config, out)
-    merges = {
-        read_json(Path(f) / "config.json")["merged_model_path"]
-        for f in read_json(out / "pending-validation.json")
-    }
-    for merged in sorted(merges):
-        release_merge(Path(merged), out / "merge-receipts" / f"{Path(merged).name}.json")
-    return []
-
-
 def phase_prune(config: dict, out: Path, _attempts: int) -> list[str]:
     """Free resume state and adapter copies no later phase reads; append the record."""
     state = read_json(out / "state.json")
@@ -134,8 +119,6 @@ PHASES = {
     "next": phase_next,
     "record": phase_record,
     "record-failure": phase_record_failure,
-    "validation": phase_validation,
-    "record-validation": phase_record_validation,
     "prune": phase_prune,
     "identity": phase_identity,
     "evaluation": phase_evaluation,
@@ -191,7 +174,6 @@ def prepare(config: dict, out: Path) -> None:
         }
     save_json(out / "requests-manifest.json", requests)
     save_json(out / "schedule.json", reviewed_training_order(config, manifest["roles"]["train"]))
-    now = utc_now()
     save_json(
         out / "state.json",
         {
@@ -200,9 +182,7 @@ def prepare(config: dict, out: Path) -> None:
             "current_checkpoint": config["initial_checkpoint"],
             "current_adapter_sha256": config["initial_adapter_sha256"],
             "completion_gate": False,
-            "validation_history": [],
-            "started_utc": now.isoformat(),
-            "last_validation_epoch": now.timestamp(),
+            "started_utc": utc_now().isoformat(),
         },
     )
 

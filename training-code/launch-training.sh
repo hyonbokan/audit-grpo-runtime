@@ -173,27 +173,6 @@ while true; do
   cpu record >> "$run_root/training-record.log"
   visit_backup "visit-$(basename -- "$folder")"
   prune
-  event validation-prepare
-  folders=$(cpu validation)
-  if [[ -n "$folders" ]]; then
-    validation_status=0
-    while IFS= read -r folder; do
-      checkpoint=$(json_value "$folder/config.json" cases 0 checkpoint)
-      merged=$(json_value "$folder/config.json" merged_model_path)
-      merge "$checkpoint" "$merged"
-      event validation
-      if ! bash "$code_root/launch-evaluation.sh" "$folder" "$folder/config.json" > "$folder/launcher.log" 2>&1; then
-        validation_status=1
-        break
-      fi
-    done <<< "$folders"
-    if ((validation_status)); then
-      event validation-failed
-      training_status=1
-      break
-    fi
-    cpu record-validation >> "$run_root/validation-record.log"
-  fi
 done
 printf '%s\n' "$training_status" > "$run_root/training-exit.txt"
 event training-finished

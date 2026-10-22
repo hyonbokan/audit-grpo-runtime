@@ -15,4 +15,5 @@ Imports here still name the old layout (`scripts.finetuning.training`, `experime
 | `corpus.py`, `corpus_build.py`, `corpus_export.py`, `corpus_dependencies.py` | LLM-reviewed corpus pipeline and npm/git dependency recovery. |
 | `inference/benchmark.py` | Standalone short-generation benchmark CLI. |
 | `inference/sampling_check.py`, `inference/check_sampling.py`, `inference/acceptance.py` | One-time sampler acceptance probes. |
+| `inference/panel_evaluation.py` | Validation panels during training (`grpo_held_out_panel`); validation was dropped on 2026-10-22, so a run evaluates only its final checkpoint. |
 | `provenance/` | Initial extraction map, its hashes and the implementation diff against it (local only, git-ignored: it holds rental paths). |

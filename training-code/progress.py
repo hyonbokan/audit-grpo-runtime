@@ -1,4 +1,4 @@
-"""Training order, per-group update decisions and validation checkpoint selection."""
+"""Training order and per-group update decisions."""
 
 from __future__ import annotations
 
@@ -63,49 +63,6 @@ def verify_dataset(config: dict[str, Any]) -> None:
         path = (root / relative).resolve()
         if not path.is_relative_to(root.resolve()) or sha256_file(path) != digest:
             raise ValueError(f"Frozen corpus file changed: {relative}")
-
-
-# --- Validation panels
-
-
-def aggregate_panel(rows: list[dict[str, Any]]) -> dict[str, Any]:
-    if not rows or len({r["row_id"] for r in rows}) != len(rows):
-        raise ValueError("Nonempty unique project panel required")
-    for row in rows:
-        for key in ("exact_coverage", "partial_coverage", "format_validity"):
-            if (
-                type(row[key]) not in (int, float)
-                or not math.isfinite(row[key])
-                or not 0 <= row[key] <= 1
-            ):
-                raise ValueError("Unknown or invalid project metric")
-    return {
-        "row_ids": sorted(r["row_id"] for r in rows),
-        "projects": rows,
-        "unknown_draws": sum(r["unknown_draws"] for r in rows),
-        "macro_exact_coverage": sum(r["exact_coverage"] for r in rows) / len(rows),
-        "macro_partial_coverage": sum(r["partial_coverage"] for r in rows) / len(rows),
-        "macro_format_validity": sum(r["format_validity"] for r in rows) / len(rows),
-    }
-
-
-def select_checkpoint(
-    history: list[dict[str, Any]], *, minimum_improvement: float
-) -> dict[str, Any]:
-    if not history or minimum_improvement < 0:
-        raise ValueError("Baseline validation and nonnegative minimum improvement required")
-    identity = history[0]["panel"]["row_ids"]
-    best = history[0]
-    for entry in history:
-        panel = entry["panel"]
-        if panel["row_ids"] != identity or panel["unknown_draws"]:
-            raise ValueError("Validation panel differs or contains unknown grades")
-        metric = panel["macro_exact_coverage"]
-        if not math.isfinite(metric) or not 0 <= metric <= 1:
-            raise ValueError("Invalid validation selection metric")
-        if metric > best["panel"]["macro_exact_coverage"] + minimum_improvement:
-            best = entry
-    return best
 
 
 if __name__ == "__main__":

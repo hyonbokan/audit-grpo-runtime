@@ -110,15 +110,8 @@ for job in "${grading_jobs[@]}"; do wait "$job"; done
 grading_jobs=()
 
 phase=comparison
-if [[ "$evaluation_module" == panel_evaluation ]]; then
-  # Panel scoring needs the judge environment's schema packages.
-  live_exec timeout -k 10 "$(remaining)s" /opt/pilot/judge/bin/python \
-    "$LIVE_CODE/inference/panel_evaluation.py" finish \
-    --config "$container_out/prepared.json" --out "$container_out" > "$run_root/comparison.log" 2>&1
-else
-  timeout --foreground "$(remaining)s" docker run --rm --network none \
-    "${mounts[@]}" "${environment[@]}" "$native_image" /opt/pilot/gpu/bin/python \
-    "/training-code/inference/$evaluation_module.py" finish --config "$config" --out "$container_out" \
-    > "$run_root/comparison.log" 2>&1
-fi
+timeout --foreground "$(remaining)s" docker run --rm --network none \
+  "${mounts[@]}" "${environment[@]}" "$native_image" /opt/pilot/gpu/bin/python \
+  "/training-code/inference/$evaluation_module.py" finish --config "$config" --out "$container_out" \
+  > "$run_root/comparison.log" 2>&1
 phase=complete
