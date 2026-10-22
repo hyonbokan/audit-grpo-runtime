@@ -1,28 +1,16 @@
-import json
-from pathlib import Path
-
 import pytest
 
 import cycle_contract
+from testing.cycles import schedule_cycle
 
 
-def test_xhigh_schedule_requires_explicit_xhigh_and_a_larger_answer_budget():
-    c = json.loads((Path(__file__).parent / "fixtures/cycle.json").read_text())
-    c.update(
-        schedule_id="audited-xhigh-20261009",
-        initial_step=2,
-        target_step=3,
-        row_id="audit/group-1",
-        dataset_workspace="/dataset",
-        judge_operation_cap_usd=150,
-        policy_reasoning_effort="xhigh",
-    )
-    c["sampling"]["max_tokens"] = 32768
-    c["engine"]["max_model_len"] = 65536
-    cycle_contract.validate_config(c)
-    c["policy_reasoning_effort"] = "low"
+def test_xhigh_schedule_requires_explicit_xhigh_policy_effort():
+    config = schedule_cycle("weekend-grpo-20261009")
+    assert config["policy_reasoning_effort"] == "xhigh"
+    cycle_contract.validate_config(config)
+    config["policy_reasoning_effort"] = "medium"
     with pytest.raises(ValueError, match="reasoning"):
-        cycle_contract.validate_config(c)
+        cycle_contract.validate_config(config)
 
 
 def test_low_prompt_cannot_be_relabelled_as_an_xhigh_training_request():

@@ -18,15 +18,16 @@ from rollout import run_rollout
 @pytest.mark.parametrize("mode", ["rollout", "base", "merged"])
 def test_versioned_groups_capture_actual_sdk_tokens(tmp_path, monkeypatch, mode):
     from testing.benchmark import free_text_configuration, trained_free_text_configuration
+    from testing.cycles import schedule_cycle
 
     phase = "rollout" if mode == "rollout" else "evaluate"
     if mode == "rollout":
-        config = json.loads((Path(__file__).parents[1] / "fixtures/cycle.json").read_text())
+        config = schedule_cycle("medium-day-20261010")
     elif mode == "base":
         config = free_text_configuration()
     else:
         config = trained_free_text_configuration()
-    step = {"rollout": 1, "base": 0, "merged": 7}[mode]
+    step = {"rollout": 3, "base": 0, "merged": 7}[mode]
     checkpoint = tmp_path / "checkpoint-1"
     checkpoint.mkdir()
     save_file(
@@ -72,6 +73,13 @@ def test_versioned_groups_capture_actual_sdk_tokens(tmp_path, monkeypatch, mode)
         "full_completion_ceiling": config["sampling"]["max_tokens"],
         "max_model_len": config["engine"]["max_model_len"],
     }
+    if mode == "rollout":
+        # A training rollout samples at the schedule's policy reasoning effort.
+        effort = config["policy_reasoning_effort"]
+        request["template_options"] = {"enable_thinking": True, "reasoning_effort": effort}
+        plan = tmp_path / "plan.json"
+        plan.write_text(json.dumps({"sampling_profile": {"policy_reasoning_effort": effort}}))
+        config["source_plan"] = str(plan)
     config["request"] = str(tmp_path / "request.json")
     Path(config["request"]).write_text(json.dumps(request))
     outputs = [

@@ -2,7 +2,7 @@
   "read_json": {
     "audited_corpus.py": 4,
     "corpus_sources.py": 2,
-    "cycle_contract.py": 10,
+    "cycle_contract.py": 8,
     "cycle_recovery.py": 4,
     "grpo/corrected_update.py": 5,
     "grpo/judge_cache.py": 1,
@@ -14,7 +14,7 @@
     "inference/adapter_compat.py": 1,
     "inference/benchmark_contract.py": 1,
     "inference/benchmark_judge.py": 3,
-    "schedules.py": 2
+    "schedules.py": 1
   },
   "write_json": {
     "cycle_contract.py": 3,

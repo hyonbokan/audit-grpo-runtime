@@ -14,7 +14,6 @@
       "seconds_limit": 10800,
       "judge_seconds_limit": 1800,
       "judge_operation_cap_usd": 100,
-      "maximum_context": 262144,
       "gpu_memory_utilization": 0.9,
       "policy_reasoning_effort": "medium",
       "offload_layers": 32,

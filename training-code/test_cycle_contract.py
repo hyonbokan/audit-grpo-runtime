@@ -2,7 +2,6 @@
 
 import hashlib
 import json
-from pathlib import Path
 
 import pytest
 
@@ -53,13 +52,16 @@ def test_all_explicit_conditions_approve_only_one_cycle():
     assert result == {"approved": True, "failed_conditions": [], "scope": "one_corrected_cycle"}
 
 
+DAY = "medium-day-20261010"
+
+
 @pytest.mark.parametrize(
     "name, value",
     [
-        ("seconds_limit", 5401),
+        ("seconds_limit", 10801),
         ("retry_limit", 1),
-        ("judge_operation_cap_usd", 11),
-        ("target_step", 3),
+        ("judge_operation_cap_usd", 101),
+        ("target_step", 5),
         ("native_adapter_precision", "bfloat16"),
         ("optimizer_kind", "adamw_torch"),
         ("correction_max", 100),
@@ -68,21 +70,24 @@ def test_all_explicit_conditions_approve_only_one_cycle():
     ],
 )
 def test_configuration_cannot_expand_reviewed_scope(name, value):
-    config = json.loads((Path(__file__).parent / "fixtures/cycle.json").read_text())
+    config = schedule_cycle(DAY)
+    cycle_contract.validate_config(config)
     config[name] = value
     with pytest.raises(ValueError):
         cycle_contract.validate_config(config)
 
 
-def test_reviewed_cycle_allows_time_for_generation_and_training():
-    config = json.loads((Path(__file__).parent / "fixtures/cycle.json").read_text())
-    config["seconds_limit"] = 5400
-    cycle_contract.validate_config(config)
+@pytest.mark.parametrize("schedule_id", [None, "continuation-expanded-20261009"])
+def test_a_cycle_must_name_a_registered_schedule(schedule_id):
+    config = schedule_cycle(DAY)
+    config["schedule_id"] = schedule_id
+    with pytest.raises(ValueError, match="schedule"):
+        cycle_contract.validate_config(config)
 
 
 def test_cli_rejects_missing_checkpoint_without_creating_prepared_receipt(tmp_path, monkeypatch):
-    freeze(monkeypatch, cycle_contract, "2026-10-09T00:00:00+00:00")
-    config = json.loads((Path(__file__).parent / "fixtures/cycle.json").read_text())
+    freeze(monkeypatch, cycle_contract, "2026-10-10T00:00:00+00:00")
+    config = schedule_cycle(DAY)
     config["checkpoint"] = str(tmp_path / "absent")
     path = tmp_path / "config.json"
     path.write_text(json.dumps(config))
@@ -96,7 +101,12 @@ SAVED_ADAPTER_SHA256 = hashlib.sha256(SAVED_ADAPTER).hexdigest()
 
 
 def cycle_fixture(tmp_path):
-    config = json.loads((Path(__file__).parent / "fixtures/cycle.json").read_text())
+    """A scheduled cycle whose rollout, grades and update all completed and agree."""
+    config = schedule_cycle(DAY)
+    source, target = config["initial_step"], config["target_step"]
+    request = tmp_path / "request.json"
+    request.write_text(json.dumps({"row_id": config["row_id"], "prompt_ids": [1]}))
+    config["request"] = str(request)
     repeat = {
         "raw_probability_parity": True,
         "raw_max_abs_logprob_difference": 0.0,
@@ -108,7 +118,7 @@ def cycle_fixture(tmp_path):
     files = {
         "rollout/receipt.json": {
             "transfer": {"cast_transfer_verified": True},
-            "weight_version": "step-1:old",
+            "weight_version": f"step-{source}:old",
             "native_adapter_precision": "float32",
             "rollout_adapter_precision": "bfloat16",
         },
@@ -118,12 +128,19 @@ def cycle_fixture(tmp_path):
             "correction_clip_fraction": 0.0,
             "correction_ess_fraction": 1.0,
             "adapter_weights_changed": True,
-            "optimizer_steps": [2],
+            "optimizer_steps": [target],
             "adapter_sha256": SAVED_ADAPTER_SHA256,
-            "weight_version": f"step-2:{SAVED_ADAPTER_SHA256}",
-            "source_weight_version": "step-1:old",
+            "weight_version": f"step-{target}:{SAVED_ADAPTER_SHA256}",
+            "source_weight_version": f"step-{source}:old",
         },
-        "rollout/samples.json": [{"sampling_support_ids": [[1]], "weight_version": "step-1:old"}]
+        "rollout/samples.json": [
+            {
+                "row_id": config["row_id"],
+                "prompt_ids": [1],
+                "sampling_support_ids": [[1]],
+                "weight_version": f"step-{source}:old",
+            }
+        ]
         * 4,
         "grading/rewards.json": [1, 0, 1, -1],
     }
@@ -131,7 +148,7 @@ def cycle_fixture(tmp_path):
         path = tmp_path / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(value))
-    checkpoint = tmp_path / "update/checkpoint-2"
+    checkpoint = tmp_path / f"update/checkpoint-{target}"
     checkpoint.mkdir()
     for name in ("optimizer.pt", "rng_state.pth", "scheduler.pt", "trainer_state.json"):
         (checkpoint / name).touch()
@@ -160,7 +177,7 @@ def test_update_cannot_hide_training_from_a_different_source(tmp_path):
     config, _ = cycle_fixture(tmp_path)
     path = tmp_path / "update/receipt.json"
     receipt = json.loads(path.read_text())
-    receipt["source_weight_version"] = "step-1:unrelated"
+    receipt["source_weight_version"] = "step-0:unrelated"
     path.write_text(json.dumps(receipt))
     result = cycle_contract.finish_cycle(config, tmp_path)
     assert result["decision"]["failed_conditions"] == ["weight_version_chain"]
@@ -168,13 +185,14 @@ def test_update_cannot_hide_training_from_a_different_source(tmp_path):
 
 @pytest.mark.parametrize(
     ("receipt_change", "saved_bytes"),
-    [({}, b"a different adapter"), ({"weight_version": "step-2:other"}, SAVED_ADAPTER)],
+    [({}, b"a different adapter"), ({"weight_version": "step-4:other"}, SAVED_ADAPTER)],
 )
 def test_saved_adapter_must_be_the_one_the_update_reported(tmp_path, receipt_change, saved_bytes):
     config, _ = cycle_fixture(tmp_path)
     path = tmp_path / "update/receipt.json"
     path.write_text(json.dumps({**json.loads(path.read_text()), **receipt_change}))
-    (tmp_path / "update/checkpoint-2/adapter_model.safetensors").write_bytes(saved_bytes)
+    target = config["target_step"]
+    (tmp_path / f"update/checkpoint-{target}/adapter_model.safetensors").write_bytes(saved_bytes)
     result = cycle_contract.finish_cycle(config, tmp_path)
     assert result["decision"]["failed_conditions"] == ["saved_adapter_identity"]
 
@@ -183,23 +201,15 @@ def test_saved_adapter_must_be_the_one_the_update_reported(tmp_path, receipt_cha
 
 
 def continuation_config():
-    config = json.loads((Path(__file__).parent / "fixtures/cycle.json").read_text())
-    config.update(
-        schedule_id="continuation-expanded-20261009",
-        initial_step=2,
-        target_step=3,
-        seconds_limit=14400,
-        judge_operation_cap_usd=100,
-        row_id="new-scope/all-scope",
-        dataset_workspace="/results/run/dataset",
+    return dict(
+        schedule_cycle(DAY), row_id="new-scope/all-scope", dataset_workspace="/results/run/dataset"
     )
-    return config
 
 
 def test_preparation_carries_explicit_dotenv_path_to_training_worker(tmp_path, monkeypatch):
     from cycle_contract import prepare_cycle
 
-    freeze(monkeypatch, cycle_contract, "2026-10-09T00:00:00+00:00")
+    freeze(monkeypatch, cycle_contract, "2026-10-10T00:00:00+00:00")
 
     config = continuation_config()
     checkpoint = tmp_path / "checkpoint-2"
@@ -212,7 +222,9 @@ def test_preparation_carries_explicit_dotenv_path_to_training_worker(tmp_path, m
         "rng_state.pth",
     ):
         (checkpoint / name).write_bytes(b"saved")
-    (checkpoint / "trainer_state.json").write_text('{"global_step":2}')
+    (checkpoint / "trainer_state.json").write_text(
+        json.dumps({"global_step": config["initial_step"]})
+    )
     config.update(
         checkpoint=str(checkpoint),
         model_path=str(checkpoint),

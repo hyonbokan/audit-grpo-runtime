@@ -28,10 +28,6 @@ def schedule(schedule_id: str) -> dict[str, Any]:
     return resolved
 
 
-def is_registered(schedule_id: str | None) -> bool:
-    return schedule_id in json.loads(REGISTRY.read_text())["schedules"]
-
-
 def schedule_after_update(config: dict) -> dict:
     """The continuation schedule saved beside a checkpoint, advanced past this update."""
     schedule = dict(config["continuation_schedule"])
