@@ -24,7 +24,9 @@ mounts=(-v "$code_root:/training-code:ro" -v "$runtime_root:/runtime:ro"
 environment=(-e PYTHONPATH=/training-code:/training-code/inference:/workspace/code/backend
   -e PYTHONDONTWRITEBYTECODE=1 -e OMP_NUM_THREADS=1
   -e HF_HUB_OFFLINE=1 -e HF_HUB_DISABLE_TELEMETRY=1
-  -e HF_HOME=/workspace/cache/huggingface -e VLLM_USE_FLASHINFER_SAMPLER=0)
+  -e HF_HOME=/workspace/cache/huggingface -e VLLM_USE_FLASHINFER_SAMPLER=0
+  # Compiled graphs and kernels outlive each container, so an engine start reuses them.
+  -e VLLM_CACHE_ROOT=/workspace/cache/vllm -e TRITON_CACHE_DIR=/workspace/cache/triton)
 
 # Some hosts report GPU peer access but corrupt peer copies (IOMMU translation between root
 # ports); preflight.sh checks the data. "disabled" preloads a shim that reports no peer

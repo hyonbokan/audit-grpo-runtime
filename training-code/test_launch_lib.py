@@ -167,6 +167,16 @@ def test_enabled_peer_access_changes_nothing(tmp_path):
     assert not calls.exists()
 
 
+def test_compile_caches_persist_in_the_host_cache(tmp_path):
+    write_host_settings(tmp_path, peer_access="enabled")
+    env, _calls = compiling_docker(tmp_path)
+    result = run('printf "%s\\n" "${environment[@]}"', tmp_path, **env)
+    assert result.returncode == 0, result.stderr
+    lines = result.stdout.splitlines()
+    assert "VLLM_CACHE_ROOT=/workspace/cache/vllm" in lines
+    assert "TRITON_CACHE_DIR=/workspace/cache/triton" in lines
+
+
 @pytest.mark.parametrize("setting", ["", "AUDIT_GRPO_PEER_ACCESS=off\n"])
 def test_peer_access_must_be_declared_with_an_allowed_value(tmp_path, setting):
     cache = write_host_settings(tmp_path)
