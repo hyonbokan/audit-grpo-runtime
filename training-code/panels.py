@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from benchmark_free_text import evaluation_row_ids
+from benchmark_free_text import evaluation_row_ids, validate_config
 from runtime_io import new_result_dir, read_json, save_json, sha256_file, utc_now
 from schedules import scope
 
@@ -50,8 +50,6 @@ def evaluation_configs(config: dict, out: Path) -> list[str]:
 
     Each project's config is its frozen base run's own, so the arms differ only in the weights.
     """
-    from benchmark_evaluation import validate_benchmark_config
-
     reviewed = scope(config)
     state = read_json(out / "state.json")
     case = trained_case(state)
@@ -99,7 +97,7 @@ def evaluation_configs(config: dict, out: Path) -> list[str]:
             judge_ledger=config["judge_ledgers"]["evaluation"],
             judge_cap_usd=reviewed["evaluation_judge_cap_usd"],
         )
-        validate_benchmark_config(child)
+        validate_config(child)
         root = new_result_dir(config, run_id)
         save_json(root / "config.json", child)
         projects.append(

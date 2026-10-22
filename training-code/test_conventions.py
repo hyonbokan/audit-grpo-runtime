@@ -16,12 +16,7 @@ ROOT = Path(__file__).resolve().parent
 BASELINE = ROOT / "testing/conventions_baseline.json"
 FROZEN_BACKEND = Path("/workspace/code/backend")
 # Reviewed contract files; a new one needs a reason, not a copy of schedules.json.
-SCOPE_FILES = {
-    "benchmark_scope.json",
-    "cycle_scope.json",
-    "evaluation_scope.json",
-    "native_context_scope.json",
-}
+SCOPE_FILES = {"benchmark_scope.json", "cycle_scope.json"}
 # Patterns that belong in runtime_io.py; elsewhere they are duplicated helpers.
 DUPLICATED_HELPERS = {
     "read_json": r"json\.loads\([^\n]*read_text\(\)\)",

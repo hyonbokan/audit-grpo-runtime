@@ -103,7 +103,7 @@ the same change.
 ## No silent fallbacks
 
 - An unknown id, kind or state raises with the allowed values, e.g. `schedules.scope` or
-  `validate_evaluation_config`. Never map an unmatched value to a default branch.
+  `benchmark_free_text.validate_config`. Never map an unmatched value to a default branch.
 - Read required config with `config["key"]`. Use `.get(key, default)` only for an optional
   field whose default is deliberate, and say so in a comment.
 - No magic numbers in logic. Policy values go in `schedules.json` or a reviewed

@@ -1,4 +1,4 @@
-"""Native benchmark grading in the existing credential-bearing Python 3.14 worker."""
+"""Free-text benchmark grading in the existing credential-bearing Python 3.14 worker."""
 
 from __future__ import annotations
 
@@ -15,9 +15,8 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictStr
 from scripts.finetuning.tools.pilot_transport import CURRENT_JOB, RecordedJudgeRouter
 
 import benchmark_free_text as free_text
-from benchmark_contract import grading_input_hashes, parse_completion
-from benchmark_evaluation import validate_benchmark_config
-from benchmark_matching import evaluate_findings, judge_vote
+from benchmark_contract import grading_input_hashes
+from benchmark_matching import judge_vote
 from grpo.budget import JudgeBudget, response_token_usage
 from grpo.judge_environment import judge_router_config
 from grpo.samples import write_new
@@ -64,7 +63,7 @@ async def grade_benchmark(
     config_path: Path, sample_path: Path, out: Path, replay_path: Path | None = None
 ) -> None:
     config = json.loads(config_path.read_text())
-    validate_benchmark_config(config)
+    free_text.validate_config(config)
     router_config = judge_router_config(config, semaphore_limit=4)
     truth_data = config_path.with_name("private-truth.json").read_bytes()
     template_data = config_path.with_name("judge-prompt.txt").read_bytes()
@@ -88,44 +87,21 @@ async def grade_benchmark(
     started = time.monotonic()
     try:
         judge = BenchmarkJudge(router, out, budget, replay_path=replay_path)
-        semaphore = asyncio.Semaphore(config.get("grading_concurrency", 1))
-        # Older configs predate output_format; their answers are native JSON.
-        free = config.get("output_format", "json") == "free_text"
-        if free:
-            (out / "extraction").mkdir()
-            extractor = BenchmarkJudge(
-                router,
-                out / "extraction",
-                budget,
-                ExtractedReport,
-                replay_path=replay_path / "extraction" if replay_path else None,
-            )
+        semaphore = asyncio.Semaphore(config["grading_concurrency"])
+        (out / "extraction").mkdir()
+        extractor = BenchmarkJudge(
+            router,
+            out / "extraction",
+            budget,
+            ExtractedReport,
+            replay_path=replay_path / "extraction" if replay_path else None,
+        )
 
         async def grade_draw(index, sample):
             async with semaphore:
-                if free:
-                    result = await free_text.grade_draw(
-                        sample, truth, template, extractor, lambda prompt: judge_vote(prompt, judge)
-                    )
-                    return record_draw(index, sample, result)
-                try:
-                    findings = parse_completion(
-                        sample["final_text"],
-                        sample["finish_reason"],
-                        output_format=config.get("output_format", "json"),
-                    )
-                except ValueError as error:
-                    result = {
-                        "status": "truncated" if sample["finish_reason"] == "length" else "invalid",
-                        "error": str(error),
-                        "known_gt_count": len(truth),
-                        "exact_coverage": None,
-                        "coverage_including_partial": None,
-                    }
-                else:
-                    result = await evaluate_findings(
-                        findings, truth, template, lambda prompt: judge_vote(prompt, judge)
-                    )
+                result = await free_text.grade_draw(
+                    sample, truth, template, extractor, lambda prompt: judge_vote(prompt, judge)
+                )
                 return record_draw(index, sample, result)
 
         def record_draw(index, sample, result):

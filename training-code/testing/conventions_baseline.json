@@ -13,11 +13,7 @@
     "hf_backup.py": 5,
     "inference/adapter_compat.py": 1,
     "inference/benchmark_contract.py": 1,
-    "inference/benchmark_evaluation.py": 13,
     "inference/benchmark_judge.py": 3,
-    "inference/benchmark_suite.py": 1,
-    "inference/evaluation.py": 10,
-    "inference/heal_samples.py": 2,
     "schedules.py": 2
   },
   "write_json": {
@@ -28,7 +24,6 @@
     "grpo/native_policy.py": 2,
     "inference/adapter_mapping.py": 1,
     "inference/benchmark_suite.py": 1,
-    "inference/heal_samples.py": 1,
     "inference/rollout.py": 2
   },
   "sha256": {
@@ -45,21 +40,15 @@
     "inference/adapter_compat.py": 1,
     "inference/adapter_mapping.py": 2,
     "inference/benchmark_contract.py": 5,
-    "inference/benchmark_evaluation.py": 6,
     "inference/benchmark_judge.py": 2,
-    "inference/benchmark_suite.py": 1,
-    "inference/evaluation.py": 3,
     "inference/generation.py": 1,
-    "inference/heal_samples.py": 1,
     "inference/rollout.py": 2,
     "provenance.py": 1
   },
   "clock": {
     "cycle_contract.py": 3,
     "cycle_recovery.py": 1,
-    "hf_backup.py": 1,
-    "inference/benchmark_evaluation.py": 1,
-    "inference/evaluation.py": 1
+    "hf_backup.py": 1
   },
   "inline_import": {
     "audited_corpus.py": 1,
@@ -72,12 +61,8 @@
     "grpo/sampling.py": 2,
     "hf_backup.py": 4,
     "inference/adapter_compat.py": 2,
-    "inference/benchmark_evaluation.py": 2,
-    "inference/evaluation.py": 2,
-    "inference/heal_samples.py": 6,
+    "inference/benchmark_evaluation.py": 1,
     "inference/rollout.py": 3,
-    "inference/sampler_compat.py": 1,
-    "panels.py": 1,
-    "repeat_evaluation.py": 1
+    "inference/sampler_compat.py": 1
   }
 }

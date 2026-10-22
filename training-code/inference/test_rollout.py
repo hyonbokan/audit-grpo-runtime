@@ -15,12 +15,18 @@ from vllm.outputs import CompletionOutput, RequestOutput, SamplingMask
 from rollout import run_rollout
 
 
-@pytest.mark.parametrize("mode", ["rollout", "evaluate", "base", "merged", "native_base"])
+@pytest.mark.parametrize("mode", ["rollout", "base", "merged"])
 def test_versioned_groups_capture_actual_sdk_tokens(tmp_path, monkeypatch, mode):
-    phase = "evaluate" if mode in ("base", "merged", "native_base") else mode
-    configuration = "fixtures/evaluation.json" if phase == "evaluate" else "fixtures/cycle.json"
-    config = json.loads((Path(__file__).parents[1] / configuration).read_text())
-    step = 2 if phase == "evaluate" else 1
+    from testing.benchmark import free_text_configuration, trained_free_text_configuration
+
+    phase = "rollout" if mode == "rollout" else "evaluate"
+    if mode == "rollout":
+        config = json.loads((Path(__file__).parents[1] / "fixtures/cycle.json").read_text())
+    elif mode == "base":
+        config = free_text_configuration()
+    else:
+        config = trained_free_text_configuration()
+    step = {"rollout": 1, "base": 0, "merged": 7}[mode]
     checkpoint = tmp_path / "checkpoint-1"
     checkpoint.mkdir()
     save_file(
@@ -31,33 +37,15 @@ def test_versioned_groups_capture_actual_sdk_tokens(tmp_path, monkeypatch, mode)
         str(checkpoint / "adapter_model.safetensors"),
     )
     (checkpoint / "adapter_config.json").write_text(json.dumps({"r": 16, "lora_alpha": 32}))
-    config["checkpoint"] = str(checkpoint)
-    config["initial_adapter_sha256"] = hashlib.sha256(
-        (checkpoint / "adapter_model.safetensors").read_bytes()
-    ).hexdigest()
-    if phase == "evaluate":
-        config["initial_step"] = step
-        config["cases"] = [
-            dict(
-                label="test",
-                **{
-                    name: config[name]
-                    for name in ("initial_step", "checkpoint", "initial_adapter_sha256")
-                },
-            )
-        ]
-    if mode == "native_base":
-        from testing.benchmark import native_context_configuration
-
-        config = native_context_configuration()
-        config.update(initial_step=0, label="base", prompt_token_count=2)
-        config["sampling"]["max_tokens"] = 262142
-    if mode == "base":
-        config.pop("checkpoint")
-        config.pop("initial_adapter_sha256")
-        config["initial_step"] = 0
-        config["label"] = "base"
-        config["cases"] = [{"label": "base", "initial_step": 0}]
+    digest = hashlib.sha256((checkpoint / "adapter_model.safetensors").read_bytes()).hexdigest()
+    if mode == "rollout":
+        config.update(checkpoint=str(checkpoint), initial_adapter_sha256=digest)
+    elif mode == "base":
+        # An arm config is its evaluation config plus the case it generates.
+        config.update(config["cases"][0])
+    else:
+        case = dict(config["cases"][0], checkpoint=str(checkpoint), initial_adapter_sha256=digest)
+        config.update(case, cases=[case])
     if mode == "merged":
         merged = tmp_path / "merged"
         merged.mkdir()
@@ -106,7 +94,7 @@ def test_versioned_groups_capture_actual_sdk_tokens(tmp_path, monkeypatch, mode)
         # adapter mapping, validation and file persistence remain real in this test.
         def __init__(self, **settings):
             assert settings["return_sampling_mask"] is (phase != "evaluate")
-            if mode == "native_base":
+            if mode == "base":
                 assert settings["enable_lora"] is False
                 assert "worker_extension_cls" not in settings
             if mode == "merged":
@@ -117,8 +105,8 @@ def test_versioned_groups_capture_actual_sdk_tokens(tmp_path, monkeypatch, mode)
                 assert "lora_dtype" not in settings
 
         def collective_rpc(self, method, args=()):
-            if mode in ("base", "merged", "native_base"):
-                raise AssertionError("Unchanged base must never load an adapter")
+            if mode in ("base", "merged"):
+                raise AssertionError("Base and merged weights never load an adapter")
             if method == "load_adapter":
                 return [True]
             if method == "verify_adapter":
@@ -128,9 +116,12 @@ def test_versioned_groups_capture_actual_sdk_tokens(tmp_path, monkeypatch, mode)
         def generate(self, prompts, params, *, use_tqdm, **request_options):
             assert prompts == [{"prompt_token_ids": [1, 2]}]
             assert (params.n, params.max_tokens, params.top_k, params.top_p) == (
-                (1, 262142, 20, 0.95) if mode == "native_base" else (4, 16384, 20, 0.95)
+                4,
+                config["sampling"]["max_tokens"],
+                20,
+                0.95,
             )
-            if mode in ("base", "native_base"):
+            if mode == "base":
                 assert request_options["lora_request"] is None
             elif mode == "merged":
                 assert not request_options
@@ -158,7 +149,7 @@ def test_versioned_groups_capture_actual_sdk_tokens(tmp_path, monkeypatch, mode)
         assert sample["sampling_support_ids"] == (None if phase == "evaluate" else [[4, 6], [5, 6]])
         assert sample["logprobs"] == pytest.approx([-0.69314718056, -0.69314718056])
         assert sample["raw_logprobs"] is None
-        if mode in ("base", "native_base"):
+        if mode == "base":
             assert sample["weight_version"] == f"base:{config['model_revision']}"
         else:
             assert sample["weight_version"].startswith(f"step-{step}:")
@@ -169,7 +160,9 @@ def test_versioned_groups_capture_actual_sdk_tokens(tmp_path, monkeypatch, mode)
 
 def merged_arm(tmp_path, name, prompt_ids):
     """One project's merged-weight evaluation arm with its own request."""
-    config = json.loads((Path(__file__).parents[1] / "fixtures/evaluation.json").read_text())
+    from testing.benchmark import trained_free_text_configuration
+
+    config = trained_free_text_configuration(f"solidity/{name}", step=2)
     adapter = b"merged adapter"
     checkpoint = tmp_path / "checkpoint-2"
     if not checkpoint.exists():

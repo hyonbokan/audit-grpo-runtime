@@ -10,11 +10,10 @@ REGISTRY = Path(__file__).with_name("schedules.json")
 
 
 def scope(config: dict[str, Any]) -> dict[str, Any]:
-    """The reviewed schedule a run, cycle or panel config names; unnamed or unknown ids fail."""
-    schedule_id = schedule_id_of(config)
-    if schedule_id is None:
-        raise ValueError("Config names no schedule_id or weekend_schedule_id")
-    return schedule(schedule_id)
+    """The reviewed schedule a run or cycle config names; unnamed or unknown ids fail."""
+    if config.get("schedule_id") is None:
+        raise ValueError("Config names no schedule_id")
+    return schedule(config["schedule_id"])
 
 
 def schedule(schedule_id: str) -> dict[str, Any]:
@@ -31,11 +30,6 @@ def schedule(schedule_id: str) -> dict[str, Any]:
 
 def is_registered(schedule_id: str | None) -> bool:
     return schedule_id in json.loads(REGISTRY.read_text())["schedules"]
-
-
-def schedule_id_of(config: dict[str, Any]) -> str | None:
-    # Run and cycle configs carry schedule_id; derived panel configs carry weekend_schedule_id.
-    return config.get("schedule_id") or config.get("weekend_schedule_id")
 
 
 def schedule_after_update(config: dict) -> dict:

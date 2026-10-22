@@ -21,7 +21,7 @@ unavailable=(${UNAVAILABLE_TESTS:-})
 judge_tests=(
   grpo/test_judge_worker.py grpo/test_reward.py grpo/test_judge_environment.py
   grpo/test_budget.py grpo/test_judge_cache.py test_audited_reward.py
-  inference/test_benchmark_judge.py inference/test_heal_samples.py
+  inference/test_benchmark_judge.py
 )
 
 # Tests write beside their modules, so run on a copy.

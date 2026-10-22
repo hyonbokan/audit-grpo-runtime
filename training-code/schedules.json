@@ -2,7 +2,6 @@
   "defaults": {
     "maximum_context": 262144,
     "judge_cap_usd": 150,
-    "evaluation_effort": "medium",
     "evaluation_seconds_limit": 32400,
     "evaluation_judge_cap_usd": 30,
     "evaluation_base_reference": "base-free-text-xhigh-20261021-{project}",
@@ -26,7 +25,6 @@
     "weekend-grpo-20261009": {
       "training_cutoff": "2026-10-11T23:00:00+00:00",
       "final_deadline": "2026-10-13T00:00:00+00:00",
-      "evaluation_effort": "xhigh",
       "initial_group_reserve_seconds": 43200,
       "training": {
         "initial_step": 2,

@@ -21,9 +21,9 @@ SHA256 = re.compile(r"[0-9a-f]{64}")
 SEVERITIES = ("High", "Medium", "Low", "Info", "N/A")
 FINDING_KEYS = {"issue", "description", "severity", "contracts"}
 SCOPE_PATH = Path(__file__).parents[1] / "benchmark_scope.json"
-NATIVE_PATH = Path(__file__).parents[1] / "native_context_scope.json"
-# Same fields, in the same pinned order, as the reviewed native benchmark contract.
+# Settings an evaluation config copies unchanged from the reviewed contract.
 PINNED_KEYS = (
+    "benchmark_suite",
     "model_id",
     "model_revision",
     "base_precision",
@@ -73,15 +73,13 @@ Rules:
 
 def evaluation_row_ids() -> list[str]:
     """The benchmark: the five Solidity repositories every evaluation runs."""
-    return read_json(SCOPE_PATH)["solidity1"]["row_ids"]
+    return read_json(SCOPE_PATH)["row_ids"]
 
 
 def validate_config(config: dict[str, Any]) -> None:
     scope = read_json(SCOPE_PATH)
-    native = read_json(NATIVE_PATH)
-    suite = scope["free_text"]
-    allowed_rows = evaluation_row_ids() + (
-        suite["extra_verification_row_ids"] if config.get("extra_verification") is True else []
+    allowed_rows = scope["row_ids"] + (
+        scope["extra_verification_row_ids"] if config.get("extra_verification") is True else []
     )
     if config.get("row_id") not in allowed_rows:
         raise ValueError(f"Project {config.get('row_id')!r} is outside {allowed_rows}")
@@ -91,32 +89,25 @@ def validate_config(config: dict[str, Any]) -> None:
     if config.get("output_format") != "free_text":
         raise ValueError("The free-text suite sets no output format")
     effort = config.get("template_options", {}).get("reasoning_effort")
-    if effort not in suite["reasoning_efforts"]:
-        raise ValueError(f"Reasoning effort {effort!r}; reviewed: {suite['reasoning_efforts']}")
+    if effort not in scope["reasoning_efforts"]:
+        raise ValueError(f"Reasoning effort {effort!r}; reviewed: {scope['reasoning_efforts']}")
     if config["template_options"] != dict(scope["template_options"], reasoning_effort=effort):
         raise ValueError("Chat template options differ from the reviewed contract")
+    context = scope["engine"]["max_model_len"]
     prompt_tokens = config.get("prompt_token_count")
-    if type(prompt_tokens) is not int or not 0 < prompt_tokens < native["max_model_len"]:
+    if type(prompt_tokens) is not int or not 0 < prompt_tokens < context:
         raise ValueError("Measured prompt token count required")
-    sampling = dict(
-        scope["sampling"],
-        n=suite["sample_count"],
-        max_tokens=native["max_model_len"] - prompt_tokens,
-    )
-    if config.get("sampling") != sampling:
-        raise ValueError("Sampling must be four draws over the remaining context")
-    engine = dict(scope["engine"], **native["engine_overrides"])
-    for key in native["removed_engine_options"]:
-        engine.pop(key)
-    engine.update(max_model_len=native["max_model_len"], max_num_seqs=suite["max_num_seqs"])
+    if config.get("sampling") != dict(scope["sampling"], max_tokens=context - prompt_tokens):
+        raise ValueError("Sampling must be the reviewed draws over the remaining context")
     actual = config.get("engine", {})
     rollout_gpus(actual)  # Raises for an unreviewed tensor-parallel size.
-    if {**actual, "tensor_parallel_size": None} != {**engine, "tensor_parallel_size": None}:
+    # Tensor parallelism is a host placement choice, checked by rollout_gpus above.
+    if {**actual, "tensor_parallel_size": None} != dict(scope["engine"], tensor_parallel_size=None):
         raise ValueError("Engine differs from the reviewed full-context contract")
     for key in ("seconds_limit", "judge_seconds_limit", "judge_operation_cap_usd"):
         value = config.get(key)
-        if type(value) not in (int, float) or not 0 < value <= suite[key]:
-            raise ValueError(f"{key} must be in (0, {suite[key]}]")
+        if type(value) not in (int, float) or not 0 < value <= scope[key]:
+            raise ValueError(f"{key} must be in (0, {scope[key]}]")
     if type(config.get("judge_cap_usd")) not in (int, float) or not config["judge_cap_usd"] > 0:
         raise ValueError("A positive judge ledger cap is required")
     if (

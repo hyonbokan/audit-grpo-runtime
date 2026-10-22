@@ -10,10 +10,10 @@ import time
 from pathlib import Path
 from typing import Any
 
+import benchmark_free_text as free_text
 from adapter_compat import verify_tensor_parallel
 from adapter_mapping import prepare_adapter
 from cycle_contract import validate_config, validate_policy_profile, write_event
-from evaluation import validate_evaluation_config
 from generation import capture_batch, validate_request, validate_shared_engine
 from grpo.samples import capture_sample
 from runtime_io import read_json, save_json
@@ -88,7 +88,7 @@ def run_rollout(phase: str, config: dict[str, Any], out: Path) -> dict[str, Any]
 def resolve_arm(phase: str, config: dict[str, Any]) -> dict[str, Any]:
     """Validate one arm's config, request and weights, and name the version it samples."""
     if phase == "evaluate":
-        validate_evaluation_config(config)
+        free_text.validate_config(config)
     else:
         validate_config(config)
     request = read_json(config["request"])

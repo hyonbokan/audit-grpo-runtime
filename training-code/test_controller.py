@@ -590,7 +590,7 @@ def final_evaluation_run(tmp_path):
 
 
 def test_final_evaluation_runs_only_the_trained_arm_against_the_frozen_base(tmp_path):
-    from benchmark_evaluation import validate_benchmark_config
+    from benchmark_free_text import validate_config
 
     config, out = final_evaluation_run(tmp_path)
     pattern, hashes = write_frozen_base_runs(tmp_path / "runtime/results")
@@ -609,7 +609,7 @@ def test_final_evaluation_runs_only_the_trained_arm_against_the_frozen_base(tmp_
             (tmp_path / "runtime/results" / project["run_id"] / "config.json").read_text()
         )
         frozen = json.loads((tmp_path / "runtime/results" / base_run / "prepared.json").read_text())
-        validate_benchmark_config(child)
+        validate_config(child)
         assert child["cases"] == [panels.trained_case(state)]
         assert child["generation_order"] == ["checkpoint-7"]
         assert child["base_reference"] == {

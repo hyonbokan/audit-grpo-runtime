@@ -14,7 +14,7 @@ in `../private/` (not in git; start with its README).
 |---|---|
 | `launch-training.sh` | Multi-visit run: prepare, one cycle per visit, backups, merge, final evaluation. |
 | `launch-cycle.sh` | One cycle: rollout → grading → update → acceptance. |
-| `launch-evaluation.sh` | One evaluation of one project (e.g. a frozen base run). |
+| `launch-evaluation.sh` | One free-text evaluation of one project (e.g. a frozen base run). |
 | `launch-benchmark-suite.sh` | Final evaluation: every project's trained arm in one vLLM engine, graded per project, reported. |
 | `launch-lib.sh` | Shared mounts, environment, deadline timer and live-container exec. |
 | `controller.py` | Phases `launch-training.sh` calls: `prepare`, `next`, `record`, `identity`, ... |
@@ -29,7 +29,6 @@ in `../private/` (not in git; start with its README).
 | `private/` | Not in git: the frozen policy rendering (production audit prompt and answer schema) that the corpus builder and reward worker hash. Copy it in before a run; both fail loudly without it. |
 | `grpo/` | Native update (`corrected_update`, `corrected_loss`, `native_policy`), judge (`judge_worker`, `reward`, `budget`, `judge_cache`). |
 | `inference/` | vLLM rollout, adapter transfer checks, evaluation and benchmark grading. |
-| `repeat_evaluation.py`, `inference/heal_samples.py` | Manual follow-ups: fresh-seed repeats, symmetric parser healing. |
 | `runtime_io.py` | JSON files, hashes, deadlines and result directories. |
 | `provenance.py` | Writes `SOURCE_SHA256SUMS`, which every launcher verifies. |
 
@@ -144,17 +143,15 @@ Nothing has to be cleaned by hand during a run; the policy is `storage` in `sche
 
 ## Evaluation
 
-`launch-evaluation.sh` picks the module from the config's `evaluation_kind`:
-`native_solidity_benchmark` → `inference/benchmark_evaluation.py`, otherwise
-`inference/evaluation.py`. Invalid or truncated answers stay unknown, never zero.
-Healed (parser-recovered) results are a separate protocol and are never pooled with strict ones.
-
-The current benchmark is the free-text suite (`benchmark_suite: solidity_free_text`,
-`inference/benchmark_free_text.py`): the prompt sets no output format; one judge call extracts
+The benchmark is the free-text suite (`benchmark_suite: solidity_free_text`,
+`inference/benchmark_free_text.py`, reviewed settings in `benchmark_scope.json`): the prompt sets no output format; one judge call extracts
 the vulnerabilities a report asserts (kept in `<arm>-grading/extraction/`), and the reviewed
 one-to-one matcher grades them against the ground truth. A draw that stops inside its
 reasoning is graded on that reasoning (`answer_source: unclosed_reasoning`); a draw cut off at
-the context limit stays `truncated`. A trained arm is compared through its merged weights.
+the context limit stays `truncated`; an unknown answer is never scored as zero. A trained arm
+is compared through its merged weights. `launch-evaluation.sh` runs one project through
+`inference/benchmark_evaluation.py` (`settings`, `prepare`, `finish`). Earlier protocols (JSON
+and Markdown answers, validation panels, continuation references) are in `../archive/`.
 
 The base model is evaluated once, by its own run per project, and frozen. A training run's
 final evaluation generates only the trained arm: `panels.evaluation_configs` copies each
