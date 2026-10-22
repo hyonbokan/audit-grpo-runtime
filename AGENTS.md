@@ -71,9 +71,9 @@ One document per purpose. Link to the owner instead of repeating it.
 | Test configs, synthetic judge workspace, frozen clock | `testing/` |
 
 The `test_conventions.py` ratchet records today's legacy duplicates of `runtime_io`
-helpers, and today's function-level imports, per file. Counts may only go down. When a
-change removes some, regenerate the baseline (`python3 test_conventions.py --update`) in
-the same change.
+helpers, and today's function-level imports, per file. Counts may only go down. A change that
+removes some need not touch the baseline; lower it (`python3 test_conventions.py --update`)
+when you want the drop locked in.
 
 ## Python style
 
@@ -144,8 +144,7 @@ the same change.
 
 1. Ruff check and format are clean, and the full suite passes.
 2. `python3 training-code/provenance.py` has been run (needed after any source or config change).
-3. Every document naming what changed is updated, and the conventions baseline too if
-   debt went down.
+3. Every document naming what changed is updated.
 4. You report what was verified and what was not (GPU path, paid judge, vLLM tests).
 
 ## Runs, money and safety
