@@ -631,6 +631,20 @@ def test_final_evaluation_needs_every_frozen_base_before_writing_anything(tmp_pa
     assert not list((tmp_path / "artifacts").iterdir())
 
 
+@pytest.mark.parametrize(
+    ("key", "value"), [("template_options", {"reasoning_effort": "medium"}), ("sampling", {"n": 2})]
+)
+def test_final_evaluation_refuses_frozen_bases_that_differ_in_effort_or_draws(tmp_path, key, value):
+    config, out = final_evaluation_run(tmp_path)
+    pattern, _ = write_frozen_base_runs(tmp_path / "runtime/results")
+    prepared = tmp_path / "runtime/results" / pattern.format(project="phi") / "prepared.json"
+    frozen = json.loads(prepared.read_text())
+    prepared.write_text(json.dumps({**frozen, key: {**frozen[key], **value}}))
+    with pytest.raises(ValueError, match="Frozen base runs differ"):
+        panels.evaluation_configs(config, out)
+    assert not (out / "final-identity.json").exists()
+
+
 def test_final_evaluation_always_covers_the_five_solidity_repositories():
     from panels import evaluation_projects
 

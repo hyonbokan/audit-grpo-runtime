@@ -64,6 +64,14 @@ def evaluation_configs(config: dict, out: Path) -> list[str]:
         if not comparison.is_file():
             raise FileNotFoundError(f"Frozen base run has no {comparison}")
         references[name] = (base_run, read_json(root / "prepared.json"), sha256_file(comparison))
+    # The suite report states one draw count and effort for every project.
+    shared = {
+        (frozen["sampling"]["n"], frozen["template_options"]["reasoning_effort"])
+        for _, frozen, _ in references.values()
+    }
+    if len(shared) != 1:
+        raise ValueError(f"Frozen base runs differ in draws per arm or reasoning effort: {shared}")
+    [(draws, effort)] = shared
     save_json(
         out / "final-identity.json",
         {
@@ -109,8 +117,8 @@ def evaluation_configs(config: dict, out: Path) -> list[str]:
         "absolute_deadline": reviewed["final_deadline"],
         "projects": projects,
         "trained_label": case["label"],
-        "sampling": {"n": frozen["sampling"]["n"]},
-        "template_options": {"reasoning_effort": frozen["template_options"]["reasoning_effort"]},
+        "sampling": {"n": draws},
+        "template_options": {"reasoning_effort": effort},
         "output_format": "free_text",
         "stop_on_project_failure": False,
         "judge_ledger": config["judge_ledgers"]["evaluation"],
