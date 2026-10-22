@@ -165,7 +165,8 @@ duration. Reasoning effort is `medium` or `xhigh` (the pinned template has no `h
 
 Publishing: `bash training-code/publish-results.sh NAME ARM RUN_DIRECTORY...` reads each finished
 project run's `comparison.json`, `prepared.json` and the arm's receipt and samples, and writes
-`results/NAME/results.json`: exact, partial and reported findings per draw, precision, recall
-and F1 per project and pooled, and reasoning and answer tokens per draw. It then rebuilds the
+`results/NAME/results.json`: known vulnerabilities matched exactly (or only partially) in any
+draw, each counted once; every finding all draws reported; precision (exact / findings), recall
+(exact / known) and F1 per project and pooled; and reasoning and answer tokens per draw. It then rebuilds the
 `results/README.md` table from every published model. It refuses ungraded draws, projects that
 differ in model, effort, draws or weights, and an existing NAME.
