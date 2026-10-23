@@ -44,6 +44,50 @@ def test_next_group_reserves_measured_group_time_and_stops_after_repeated_trunca
     assert controller.can_start_group(state, 50000, WEEKEND) is False
 
 
+def recorded(truncated, findings=5.0):
+    return {
+        "seconds": 3600,
+        "all_truncated": False,
+        "truncated_draws": truncated,
+        "mean_findings": findings,
+    }
+
+
+def test_training_stops_when_over_a_tenth_of_the_last_twenty_draws_are_cut_off():
+    state = {"current_step": 2}
+    # Five groups are twenty draws; three cut-off draws are 15%, two are exactly 10%.
+    state["visits"] = [recorded(1), recorded(1), recorded(1), recorded(0), recorded(0)]
+    assert controller.can_start_group(state, 90000, WEEKEND) is False
+    state["visits"] = [recorded(1), recorded(1), recorded(0), recorded(0), recorded(0)]
+    assert controller.can_start_group(state, 90000, WEEKEND) is True
+
+
+def test_a_short_history_cannot_trip_the_cut_off_rate():
+    state = {"current_step": 2, "visits": [recorded(2), recorded(1)]}
+    assert controller.can_start_group(state, 90000, WEEKEND) is True
+
+
+def test_old_cut_off_draws_leave_the_window():
+    state = {"current_step": 2}
+    state["visits"] = [recorded(3), recorded(0), recorded(0), recorded(0), recorded(0), recorded(0)]
+    assert controller.can_start_group(state, 90000, WEEKEND) is True
+
+
+def test_failed_visits_carry_no_draws_and_do_not_fill_the_window():
+    failed = {"seconds": 10, "all_truncated": False, "decision": "failed"}
+    state = {"current_step": 2, "visits": [recorded(4), failed]}
+    assert controller.can_start_group(state, 90000, WEEKEND) is True
+
+
+def test_training_stops_when_reports_collapse_to_almost_no_findings():
+    state = {"current_step": 2, "visits": [recorded(0, 2.9)] * 5}
+    assert controller.can_start_group(state, 90000, WEEKEND) is False
+    state["visits"] = [recorded(0, 2.9)] * 4 + [recorded(0, 3.0)]
+    assert controller.can_start_group(state, 90000, WEEKEND) is True
+    state["visits"] = [recorded(0, 2.0)] * 4 + [recorded(0, None)]
+    assert controller.can_start_group(state, 90000, WEEKEND) is True
+
+
 def test_checkpoint_record_does_not_count_a_skipped_visit_as_learning(tmp_path):
     state = {
         "visits": [],
@@ -62,11 +106,14 @@ def test_checkpoint_record_does_not_count_a_skipped_visit_as_learning(tmp_path):
         json.dumps([{"finish_reason": "length", "final_text": ""} for _ in range(4)])
     )
     (tmp_path / "grading").mkdir()
-    (tmp_path / "grading/rewards.json").write_text("[-2,-2,-2,-2]")
+    (tmp_path / "grading/rewards.json").write_text("[0,0,0,0]")
+    (tmp_path / "grading/metrics.json").write_text(json.dumps({"mean_findings": None}))
     controller.record_visit(state, tmp_path)
     assert state["current_step"] == 2
     assert state["completion_gate"] is False
     assert state["visits"][0]["all_truncated"] is True
+    assert state["visits"][0]["truncated_draws"] == 4
+    assert state["visits"][0]["mean_findings"] is None
 
 
 def test_unaccepted_saved_update_cannot_advance_the_cursor(tmp_path):
@@ -292,6 +339,7 @@ def accepted_visit(root, *, global_step=3, approved=True, decision="update"):
     (root / "rollout/samples.json").write_text(json.dumps(draws))
     (root / "grading").mkdir()
     (root / "grading/rewards.json").write_text("[1, 0, 0, 0]")
+    (root / "grading/metrics.json").write_text(json.dumps({"mean_findings": 6.5}))
     (root / "cycle-result.json").write_text(json.dumps({"decision": {"approved": approved}}))
     (root / "update").mkdir()
     receipt = {"global_step": global_step, "adapter_sha256": "3" * 64}

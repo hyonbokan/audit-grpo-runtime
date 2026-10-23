@@ -7,6 +7,10 @@
     "evaluation_base_reference": "base-free-text-xhigh-20261021-{project}",
     "initial_group_reserve_seconds": 3600,
     "maximum_consecutive_truncated_groups": 2,
+    "maximum_truncated_draw_fraction": 0.1,
+    "truncation_window_draws": 20,
+    "minimum_mean_findings": 3,
+    "findings_window_groups": 5,
     "rate_usd_per_hour": 2.51,
     "merge_cache": "/workspace/cache/weekend-merges",
     "storage": {

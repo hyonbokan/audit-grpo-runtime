@@ -311,11 +311,31 @@ def can_start_group(state: dict, remaining_seconds: float, config: dict) -> bool
     count = reviewed["maximum_consecutive_truncated_groups"]
     if len(visits) >= count and all(v["all_truncated"] for v in visits[-count:]):
         return False
+    if truncation_exceeded(visits, reviewed) or findings_collapsed(visits, reviewed):
+        return False
     reserve = reviewed["initial_group_reserve_seconds"]
     if visits:
         recent = max(v["seconds"] for v in visits[-VISIT_RESERVE_RECENT_VISITS:])
         reserve = max(VISIT_RESERVE_MINIMUM_SECONDS, recent * VISIT_RESERVE_FACTOR)
     return remaining_seconds > reserve + VISIT_START_MARGIN_SECONDS
+
+
+def truncation_exceeded(visits: list[dict], reviewed: dict) -> bool:
+    """More than the reviewed fraction of the last window's draws hit the length cap."""
+    groups = reviewed["truncation_window_draws"] // GROUP_SIZE
+    window = [v["truncated_draws"] for v in visits if "truncated_draws" in v][-groups:]
+    return len(window) == groups and sum(window) > (
+        reviewed["maximum_truncated_draw_fraction"] * groups * GROUP_SIZE
+    )
+
+
+def findings_collapsed(visits: list[dict], reviewed: dict) -> bool:
+    """Every recent group's reports list fewer findings than the reviewed minimum."""
+    groups = reviewed["findings_window_groups"]
+    window = [v["mean_findings"] for v in visits if "mean_findings" in v][-groups:]
+    return len(window) == groups and all(
+        mean is not None and mean < reviewed["minimum_mean_findings"] for mean in window
+    )
 
 
 def record_pending(out: Path, record: Any) -> dict:
@@ -340,6 +360,8 @@ def record_visit(state: dict, root: Path) -> None:
         "decision": decision,
         "seconds": int((root / "cycle-seconds.txt").read_text()),
         "all_truncated": all(s["finish_reason"] != "stop" for s in samples),
+        "truncated_draws": sum(s["finish_reason"] == "length" for s in samples),
+        "mean_findings": read_json(root / "grading/metrics.json")["mean_findings"],
         "rewards": read_json(root / "grading/rewards.json"),
         "completed_final_answers": sum(
             s["finish_reason"] == "stop" and bool(s["final_text"]) for s in samples
