@@ -11,6 +11,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from benchmark_free_text import evaluation_row_ids
+from corpus_checks import check_benchmark_overlap
 from frozen_requests import extend_request, rerender_request
 from hf_backup import backed_up_visits
 from panels import evaluation_configs, merged_path, verify_merge
@@ -158,6 +160,7 @@ def prepare(config: dict, out: Path) -> None:
     if config["training_cutoff"] != reviewed["training_cutoff"]:
         raise ValueError("Training cutoff differs from the reviewed schedule")
     dataset = Path(config["dataset_host"])
+    verify_no_benchmark_overlap(config, dataset)
     manifest = read_json(dataset / "manifest.json")
     effort = reviewed["training"]["policy_reasoning_effort"]
     policy, tokenizer = {}, None
@@ -205,6 +208,21 @@ def prepare(config: dict, out: Path) -> None:
             "started_utc": utc_now().isoformat(),
         },
     )
+
+
+def verify_no_benchmark_overlap(config: dict, dataset: Path) -> None:
+    """The rows this run may train never share a file with the evaluation projects."""
+    manifest_path = Path(config["benchmark_assets"]) / "BENCHMARK_MANIFEST.json"
+    if sha256_file(manifest_path) != config["benchmark_manifest_sha256"]:
+        raise ValueError("Benchmark manifest identity differs")
+    admitted = read_json(dataset / "manifest.json")["roles"]["train"]
+    selected = set(config.get("training_row_ids", admitted))
+    rows = [
+        row
+        for row in map(json.loads, (dataset / "data/private/train.jsonl").read_text().splitlines())
+        if row["row_id"] in selected
+    ]
+    check_benchmark_overlap(rows, read_json(manifest_path), evaluation_row_ids())
 
 
 def reviewed_training_order(config: dict, admitted: list[str]) -> list[str]:

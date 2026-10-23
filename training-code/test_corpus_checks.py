@@ -105,3 +105,49 @@ def test_archive_identity_mismatch_is_rejected_before_policy_export():
     corpus_checks.verify_targets(row, {1: {"id": 1, "content": "original"}})
     with pytest.raises(ValueError):
         corpus_checks.verify_targets(row, {1: {"id": 1, "content": "changed"}})
+
+
+# --- Evaluation-project overlap
+
+BENCHMARK = {
+    "sources": [
+        {"lane": "solidity", "repository": "tiny", "scope_path": "Vault.sol", "sha256": ""},
+        {"lane": "solidity", "repository": "other", "scope_path": "Other.sol", "sha256": "f" * 64},
+        {"lane": "solidity2", "repository": "extra", "scope_path": "Extra.sol", "sha256": "e" * 64},
+    ]
+}
+
+
+def benchmark(shared_content):
+    sources = [dict(row) for row in BENCHMARK["sources"]]
+    sources[0]["sha256"] = hashlib.sha256(shared_content.encode()).hexdigest()
+    return {"sources": sources}
+
+
+def test_a_training_row_sharing_a_file_with_an_evaluation_project_is_refused():
+    row = candidate()
+    with pytest.raises(ValueError, match=r"vault/all-scope.*Vault\.sol.*solidity/tiny"):
+        corpus_checks.check_benchmark_overlap(
+            [row], benchmark(row["source_files"][0]["content"]), ["solidity/tiny"]
+        )
+
+
+def test_a_file_is_compared_by_its_content_not_by_its_declared_hash():
+    row = candidate()
+    row["source_files"][0]["sha256"] = "0" * 64
+    with pytest.raises(ValueError, match=r"Vault\.sol"):
+        corpus_checks.check_benchmark_overlap(
+            [row], benchmark(row["source_files"][0]["content"]), ["solidity/tiny"]
+        )
+
+
+def test_only_the_named_evaluation_projects_are_compared():
+    row = candidate()
+    shared = benchmark(row["source_files"][0]["content"])
+    corpus_checks.check_benchmark_overlap([row], shared, ["solidity/other"])
+    corpus_checks.check_benchmark_overlap([candidate()], benchmark("different"), ["solidity/tiny"])
+
+
+def test_an_evaluation_project_missing_from_the_manifest_is_refused():
+    with pytest.raises(ValueError, match="solidity/absent"):
+        corpus_checks.check_benchmark_overlap([candidate()], BENCHMARK, ["solidity/absent"])

@@ -13,6 +13,7 @@ import controller
 import panels
 import retention
 import schedules
+from benchmark_free_text import evaluation_row_ids
 from cycle_contract import validate_config
 from testing.cycles import schedule_cycle
 
@@ -401,12 +402,31 @@ def test_identity_reports_training_only_after_the_step_advanced(tmp_path, step, 
     assert lines == [f"/results/cp{step}", panels.merged_path(config, state), str(step), trained]
 
 
-def test_prepare_starts_at_the_configured_checkpoint_without_learning(tmp_path):
+def overlap_inputs(tmp_path, *, shared):
+    """A one-row training corpus and a benchmark whose first project does or does not share it."""
     dataset = tmp_path / "dataset"
-    dataset.mkdir()
+    (dataset / "data/private").mkdir(parents=True)
+    content = "contract Vault {}"
+    row = {"row_id": "new/train", "source_files": [{"path": "Vault.sol", "content": content}]}
+    (dataset / "data/private/train.jsonl").write_text(json.dumps(row) + "\n")
     manifest = {"files": {}, "requests": {}, "roles": {"train": ["new/train"]}}
     (dataset / "manifest.json").write_text(json.dumps(manifest))
-    config = run_config(
+    assets = tmp_path / "assets"
+    assets.mkdir()
+    sources = []
+    for index, project in enumerate(evaluation_row_ids()):
+        lane, repository = project.split("/")
+        text = content if shared and index == 0 else f"unrelated {index}"
+        digest = hashlib.sha256(text.encode()).hexdigest()
+        sources.append(
+            {"lane": lane, "repository": repository, "scope_path": "A.sol", "sha256": digest}
+        )
+    (assets / "BENCHMARK_MANIFEST.json").write_text(json.dumps({"sources": sources}))
+    return dataset, assets
+
+
+def prepare_config(tmp_path, dataset, assets, **changes):
+    return run_config(
         tmp_path,
         schedule_id=WEEKEND["schedule_id"],
         training_cutoff=schedules.scope(WEEKEND)["training_cutoff"],
@@ -414,10 +434,38 @@ def test_prepare_starts_at_the_configured_checkpoint_without_learning(tmp_path):
         dataset_manifest_sha256=hashlib.sha256(
             (dataset / "manifest.json").read_bytes()
         ).hexdigest(),
+        benchmark_assets=str(assets),
+        benchmark_manifest_sha256=hashlib.sha256(
+            (assets / "BENCHMARK_MANIFEST.json").read_bytes()
+        ).hexdigest(),
         epochs=1,
         seed=1,
         training_row_ids=["new/train"],
+        **changes,
     )
+
+
+def test_prepare_refuses_a_training_row_that_shares_a_file_with_an_evaluation_project(tmp_path):
+    dataset, assets = overlap_inputs(tmp_path, shared=True)
+    out = tmp_path / "out"
+    out.mkdir()
+    with pytest.raises(ValueError, match=r"new/train.*Vault\.sol.*solidity/munchables"):
+        controller.prepare(prepare_config(tmp_path, dataset, assets), out)
+    assert not (out / "state.json").exists()
+
+
+def test_prepare_refuses_a_benchmark_manifest_that_is_not_the_pinned_one(tmp_path):
+    dataset, assets = overlap_inputs(tmp_path, shared=False)
+    config = {**prepare_config(tmp_path, dataset, assets), "benchmark_manifest_sha256": "0" * 64}
+    out = tmp_path / "out"
+    out.mkdir()
+    with pytest.raises(ValueError, match="Benchmark manifest"):
+        controller.prepare(config, out)
+
+
+def test_prepare_starts_at_the_configured_checkpoint_without_learning(tmp_path):
+    dataset, assets = overlap_inputs(tmp_path, shared=False)
+    config = prepare_config(tmp_path, dataset, assets)
     out = tmp_path / "out"
     out.mkdir()
     controller.prepare(config, out)
