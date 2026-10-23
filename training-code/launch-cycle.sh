@@ -104,7 +104,7 @@ if [[ ! -f "$run_root/grading/rewards.json" ]]; then
   if ((judge_seconds > left)); then judge_seconds=$left; fi
   sync_live_code
   live_exec timeout -k 10 "${judge_seconds}s" /opt/pilot/judge/bin/python \
-    -m grpo.judge_worker --workspace /workspace \
+    -m grpo.judge_worker \
     --samples "$container_out/rollout/samples.json" --split train \
     --out "$container_out/grading" --plan "$container_out/judge-plan.json" --run-paid \
     --cache "$container_out/judge-cache" > "$run_root/grading.log" 2>&1

@@ -37,6 +37,14 @@ PINNED_KEYS = (
 )
 
 
+def render_sources(files: list[dict[str, Any]]) -> str:
+    """The file rendering both the evaluation and the training prompts embed."""
+    separator = "=" * 80
+    return "\n\n".join(
+        f"{separator}\n// File: {row['path']}\n{separator}\n\n{row['content']}" for row in files
+    )
+
+
 def audit_prompt(sources: str) -> str:
     return f"""You are a smart contract security expert. Audit the contracts below: analyse
 their logic and purpose and find every security vulnerability you can.

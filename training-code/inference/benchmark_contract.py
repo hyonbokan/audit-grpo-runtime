@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from benchmark_free_text import audit_prompt
+from benchmark_free_text import audit_prompt, render_sources
 
 
 def grading_input_hashes(samples: bytes, truth: bytes, template: bytes) -> dict[str, str]:
@@ -45,11 +45,7 @@ def load_assets(root: Path, lane: str, name: str) -> dict[str, Any]:
         sources.append(
             {"path": scope_path, "content": data.decode("utf-8"), "sha256": record["sha256"]}
         )
-    separator = "=" * 80
-    flat = "\n\n".join(
-        f"{separator}\n// File: {row['path']}\n{separator}\n\n{row['content']}" for row in sources
-    )
-    prompt = audit_prompt(flat)
+    prompt = audit_prompt(render_sources(sources))
     truth_data = confined_path(root, repo["ground_truth_path"]).read_bytes()
     if (
         repo.get("ground_truth_sha256")

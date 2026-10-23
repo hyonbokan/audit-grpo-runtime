@@ -26,6 +26,15 @@ def test_prompt_asks_for_an_audit_without_any_output_format():
         assert format_cue not in prompt
 
 
+def test_sources_are_rendered_one_banner_per_file_in_the_given_order():
+    files = [{"path": "B.sol", "content": "contract B {}"}, {"path": "A.sol", "content": "x"}]
+    banner = "=" * 80
+    assert free_text.render_sources(files) == (
+        f"{banner}\n// File: B.sol\n{banner}\n\ncontract B {{}}"
+        f"\n\n{banner}\n// File: A.sol\n{banner}\n\nx"
+    )
+
+
 def test_base_only_xhigh_effort_four_draw_config_is_reviewed():
     free_text.validate_config(free_text_configuration())
 

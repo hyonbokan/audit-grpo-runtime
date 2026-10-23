@@ -1,10 +1,7 @@
-"""Policy prompt rendering, policy rows and the pinned judge contract."""
+"""Policy prompt tokenization and the chat-template options a rollout uses."""
 
 from __future__ import annotations
 
-import hashlib
-import json
-from pathlib import Path
 from typing import Any
 
 TEMPLATE_OPTIONS = {
@@ -33,30 +30,3 @@ def policy_template_options(plan: dict) -> dict[str, Any]:
             raise ValueError("Versioned profile needs a supported policy reasoning effort")
         options["reasoning_effort"] = effort
     return options
-
-
-def load_policy_rows(workspace: Path) -> dict[str, list[dict]]:
-    """Policy-visible rows per split; private fields or duplicate rows are rejected."""
-    splits = {}
-    identities = set()
-    for split in ("train", "calibration", "evaluation"):
-        rows = [
-            json.loads(line)
-            for line in (workspace / f"data/policy/{split}.jsonl").read_text().splitlines()
-        ]
-        for row in rows:
-            if set(row) != {"row_id", "messages"} or row["row_id"] in identities:
-                raise ValueError("Private fields or duplicate row in policy records")
-            identities.add(row["row_id"])
-        splits[split] = [{"row_id": row["row_id"], "prompt": row["messages"]} for row in rows]
-    return splits
-
-
-def judging_contract(workspace: Path) -> dict[str, str]:
-    data = (workspace / "configs/reward_contract.json").read_bytes()
-    judge = json.loads(data)["judge"]
-    return {
-        "model": judge["model"],
-        "reasoning_effort": judge["reasoning_effort"],
-        "reward_contract_sha256": hashlib.sha256(data).hexdigest(),
-    }

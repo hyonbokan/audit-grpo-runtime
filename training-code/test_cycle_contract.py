@@ -7,6 +7,8 @@ import pytest
 
 import cycle_contract
 import schedules
+from benchmark_free_text import SCOPE_PATH as BENCHMARK_SCOPE_PATH
+from runtime_io import read_json
 from testing.clock import freeze
 from testing.cycles import schedule_cycle
 
@@ -240,6 +242,8 @@ def test_preparation_carries_explicit_dotenv_path_to_training_worker(tmp_path, m
     prepare_cycle(config, out)
     plan = json.loads((out / "judge-plan.json").read_text())
     assert plan["judge_env_file"] == "/opt/audit-grpo-secrets/judge.env"
+    assert plan["reward"] == schedules.scope(config)["training"]["reward"]
+    assert plan["benchmark_judge"] == read_json(BENCHMARK_SCOPE_PATH)["benchmark_judge"]
 
 
 def test_acceptance_rejects_samples_from_a_row_outside_the_frozen_step(tmp_path):

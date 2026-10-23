@@ -23,7 +23,8 @@
       "policy_reasoning_effort": "medium",
       "offload_layers": 32,
       "prefetch_depth": 1,
-      "tiled_mlp": false
+      "tiled_mlp": false,
+      "reward": {"version": "free-text-recall-volume-v1", "volume_allowance": null}
     }
   },
   "schedules": {

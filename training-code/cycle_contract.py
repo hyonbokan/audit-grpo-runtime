@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import schedules
+from benchmark_free_text import SCOPE_PATH as BENCHMARK_SCOPE_PATH
 from grpo.placement import docker_gpus, load_options, rollout_gpus
 from runtime_io import read_json, sha256_file
 
@@ -198,8 +199,9 @@ def prepare_cycle(config: dict[str, Any], out: Path) -> None:
     plan["judge_retry_limit"] = config["retry_limit"]
     plan["dataset_workspace"] = config["dataset_workspace"]
     plan["selected_row_id"] = config["row_id"]
-    if "judge_call_retries" in config:
-        plan["judge_call_retries"] = config["judge_call_retries"]
+    # The judge and the reward come from the reviewed files, never from the cycle config.
+    plan["reward"] = schedules.scope(config)["training"]["reward"]
+    plan["benchmark_judge"] = read_json(BENCHMARK_SCOPE_PATH)["benchmark_judge"]
     (out / "judge-plan.json").write_text(json.dumps(plan, indent=2) + "\n")
     write_event(
         out, "cycle_start", initial_step=config["initial_step"], target_step=config["target_step"]

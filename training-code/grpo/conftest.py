@@ -1,13 +1,13 @@
 import pytest
 
-from testing.judge import private_rows, write_workspace
+from testing.judge import private_row, write_corpus
 
 
 @pytest.fixture
-def private():
-    return private_rows()
+def row():
+    return private_row()
 
 
 @pytest.fixture
-def workspace(tmp_path):
-    return write_workspace(tmp_path / "workspace")
+def corpus(tmp_path):
+    return write_corpus(tmp_path / "corpus")

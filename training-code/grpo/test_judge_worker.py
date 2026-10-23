@@ -1,273 +1,188 @@
-"""Router boundary and persisted usage without paid calls."""
+"""Worker boundary: the evaluation's judges behind a cache, without paid calls."""
 
 import json
 from types import SimpleNamespace
 
 import pytest
 
-from testing.judge import contract, sample
+from testing.judge import FakeRouter, matching, sample
+
+REWARD = {"version": "free-text-recall-volume-v1", "volume_allowance": 3}
+REPORTS = {"found": [matching("Missing guard")], "nothing": []}
+TEMPLATE = "Truth:\n{ truth_finding }\nFindings:\n{ junior_findings }"
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("has_usage", (True, False))
-@pytest.mark.parametrize("cached", (0, 90))
-async def test_router_sends_selected_schema_effort_and_records_response_usage(
-    tmp_path, has_usage, cached
-):
-    effort = "medium"
-    from grpo import judge_worker
-    from grpo.budget import JudgeBudget
+def benchmark_judge():
+    from benchmark_free_text import SCOPE_PATH
+    from runtime_io import read_json
 
-    class Router:
-        async def complete(self, model, messages, **options):
-            assert model == "gpt-6.1-sol"
-            assert options["thinking_effort"].value == effort
-            assert options["max_tokens"] is None
-            assert options["max_retries"] == 0
-            assert options["response_model"].__name__ == "MatchResponse"
-            assert json.loads(messages[0]["content"])["candidate_findings"] == []
-            return SimpleNamespace(
-                content=options["response_model"](assessments=[]),
-                input_tokens=100 - cached,
-                output_tokens=20,
-                cache_read_tokens=cached,
-                raw_response=SimpleNamespace(
-                    model="gpt-6.1-sol",
-                    id="r0",
-                    status="completed",
-                    usage=SimpleNamespace(
-                        input_tokens=100,
-                        output_tokens=20,
-                        input_tokens_details=SimpleNamespace(cached_tokens=cached),
-                    )
-                    if has_usage
-                    else None,
-                    model_dump_json=lambda **_: (
-                        '{"id":"r0","model":"gpt-6.1-sol","status":"completed"}'
-                    ),
-                ),
-            )
-
-    budget = JudgeBudget(tmp_path / "ledger.json", cap=150)
-    adapter = judge_worker.RouterJudge(Router(), tmp_path, budget=budget)
-    result = await adapter(
-        {
-            "method": "sgr_match",
-            "model": "gpt-6.1-sol",
-            "reasoning_effort": effort,
-            "system": "Selected system",
-            "payload": {"candidate_findings": []},
-        }
-    )
-    assert result == {"assessments": []}
-    usage = json.loads((tmp_path / "call-0001/usage.json").read_text())
-    assert usage["input_tokens"] == (100 if has_usage else 100 - cached)
-    assert usage["output_tokens"] == 20
-    assert usage["response_id"] == "r0"
-    request = json.loads((tmp_path / "call-0001/request.json").read_text())
-    assert request["reasoning_effort"] == effort
-    assert request["schema"]["title"] == "MatchResponse"
-    ledger = json.loads((tmp_path / "ledger.json").read_text())
-    assert ledger["estimated_usd"] == pytest.approx(
-        ((100 - cached) * 2 + cached * 0.1 + 20 * 10) / 1e6 if has_usage else 0
-    )
-    assert ledger["calls"][0]["status"] == "settled"
-    reservation = json.loads((tmp_path / "call-0001/budget-reservation.json").read_text())
-    assert reservation["reservation_id"] == ledger["calls"][0]["id"]
-    if not has_usage:
-        assert ledger["calls"][0]["budget_charge_usd"] == ledger["calls"][0]["reserved_usd"]
+    return read_json(SCOPE_PATH)["benchmark_judge"]
 
 
-@pytest.mark.asyncio
-async def test_budget_withholds_api_call_after_unknown_usage(tmp_path):
-    from grpo import judge_worker
-    from grpo.budget import JudgeBudget
-
-    class Router:
-        calls = 0
-
-        async def complete(self, *_args, **_options):
-            self.calls += 1
-            raise TimeoutError("No response received")
-
-    router = Router()
-    adapter = judge_worker.RouterJudge(
-        router, tmp_path, budget=JudgeBudget(tmp_path / "ledger.json", cap=6)
-    )
-    request = {
-        "method": "sgr_match",
-        "model": "gpt-6.1-sol",
-        "reasoning_effort": "high",
-        "system": "Selected",
-        "payload": {"candidate_findings": []},
-    }
-    with pytest.raises(TimeoutError):
-        await adapter(request)
-    with pytest.raises(ValueError, match="budget"):
-        await adapter(request)
-    assert router.calls == 1
-
-
-@pytest.mark.asyncio
-async def test_selected_row_judging_stops_after_one_failed_group_without_retry(tmp_path, private):
-    from grpo.judge_worker import grade_selected_group
-    from grpo.reward import GroupWithheld
-
-    class FailingJudge:
-        calls = 0
-
-        async def __call__(self, _request):
-            self.calls += 1
-            raise TimeoutError("No paid response")
-
-    judge = FailingJudge()
-    with pytest.raises(GroupWithheld):
-        await grade_selected_group(
-            [sample()] * 4,
-            private,
-            contract(),
-            judge,
-            tmp_path,
-            {"selected_row_id": "row", "judge_retry_limit": 0},
-        )
-    assert judge.calls == 4
-    assert (tmp_path / "attempt-1/grades.json").exists()
-    assert not (tmp_path / "attempt-2").exists()
-
-
-@pytest.mark.asyncio
-async def test_selected_row_mismatch_prevents_any_judge_request(tmp_path, private):
-    from grpo.judge_worker import grade_selected_group
-
-    class UnexpectedJudge:
-        async def __call__(self, _request):
-            pytest.fail("Swapped row must be rejected before paid work")
-
-    with pytest.raises(ValueError, match="row"):
-        await grade_selected_group(
-            [sample()] * 4,
-            private,
-            contract(),
-            UnexpectedJudge(),
-            tmp_path,
-            {"selected_row_id": "another-row", "judge_retry_limit": 0},
-        )
-
-
-@pytest.mark.asyncio
-async def test_missing_dotenv_credentials_stop_before_training_grading(
-    tmp_path, monkeypatch, workspace
-):
-    from grpo import judge_worker
-
-    async def unexpected_router(*_args, **_kwargs):
-        pytest.fail("Missing gateway credentials must stop before router initialization")
-
-    monkeypatch.setattr(judge_worker.RecordedJudgeRouter, "create", unexpected_router)
-    plan = {
-        "judge": judge_worker.judging_contract(workspace),
-        "judge_env_file": str(tmp_path / "missing.env"),
+def plan_for(tmp_path, corpus, **changes):
+    return {
+        "reward": REWARD,
+        "benchmark_judge": benchmark_judge(),
+        "dataset_workspace": str(corpus),
+        "selected_row_id": "audit/group-123",
+        "judge_retry_limit": 1,
+        "judge_operation": {"id": "test-op", "cap_usd": 100},
         "access": {
             "local_judge_budget": {"path": str(tmp_path / "ledger.json")},
             "judge_usd_cap": 150,
         },
+        **changes,
     }
-    plan_path = tmp_path / "plan.json"
-    plan_path.write_text(json.dumps(plan))
-    samples = tmp_path / "samples.json"
-    samples.write_text(json.dumps([sample()] * 4))
-    args = SimpleNamespace(
-        plan=plan_path,
-        workspace=workspace,
+
+
+def write_args(tmp_path, plan, samples):
+    (tmp_path / "plan.json").write_text(json.dumps(plan))
+    (tmp_path / "samples.json").write_text(json.dumps(samples))
+    return SimpleNamespace(
+        plan=tmp_path / "plan.json",
+        samples=tmp_path / "samples.json",
         split="train",
-        samples=samples,
         out=tmp_path / "grading",
+        cache=tmp_path / "cache",
     )
-    with pytest.raises(ValueError, match="gateway credential file"):
+
+
+def patch_router(monkeypatch, router):
+    from grpo import judge_worker
+
+    async def create(_config):
+        return router
+
+    monkeypatch.setattr(judge_worker.RecordedJudgeRouter, "create", create)
+    monkeypatch.setattr(judge_worker, "judge_router_config", lambda *_a, **_k: object())
+
+
+@pytest.mark.asyncio
+async def test_a_group_is_graded_cached_and_summarised(tmp_path, corpus, monkeypatch):
+    from grpo import judge_worker
+
+    router = FakeRouter(REPORTS)
+    patch_router(monkeypatch, router)
+    samples = [sample("found"), sample("nothing"), sample("found"), sample("cut", "length")]
+    args = write_args(tmp_path, plan_for(tmp_path, corpus), samples)
+    await judge_worker.run(args)
+    assert json.loads((args.out / "rewards.json").read_text()) == [0.5, 0.0, 0.5, 0.0]
+    metrics = json.loads((args.out / "metrics.json").read_text())
+    assert (metrics["caught_gt_ids"], metrics["truncated_draws"]) == (["archive:1"], 1)
+    contract = json.loads((args.out / "reward-contract.json").read_text())
+    assert contract["reward"] == REWARD and len(contract["sha256"]) == 64
+    receipt = json.loads((args.out / "cache-receipt.json").read_text())
+    assert receipt["replayed_calls"] == 0 and receipt["paid_calls"] == len(
+        router.extract_prompts
+    ) + len(router.match_prompts)
+    assert router.closed
+    ledger = json.loads((tmp_path / "ledger.json").read_text())
+    assert ledger["calls"] and all(call["status"] == "settled" for call in ledger["calls"])
+
+
+@pytest.mark.asyncio
+async def test_a_resumed_group_pays_for_nothing_already_graded(tmp_path, corpus, monkeypatch):
+    from grpo import judge_worker
+
+    samples = [sample("found"), sample("nothing"), sample("found"), sample("nothing")]
+    first = FakeRouter(REPORTS)
+    patch_router(monkeypatch, first)
+    args = write_args(tmp_path, plan_for(tmp_path, corpus), samples)
+    await judge_worker.run(args)
+    second = FakeRouter(REPORTS)
+    patch_router(monkeypatch, second)
+    args.out = tmp_path / "grading-again"
+    await judge_worker.run(args)
+    assert second.extract_prompts == [] and second.match_prompts == []
+    assert json.loads((args.out / "rewards.json").read_text()) == [0.5, 0.0, 0.5, 0.0]
+    assert json.loads((args.out / "cache-receipt.json").read_text())["paid_calls"] == 0
+
+
+@pytest.mark.asyncio
+async def test_a_failed_extraction_is_regraded_from_the_cache_without_paying_twice(
+    tmp_path, corpus, monkeypatch
+):
+    from grpo import judge_worker
+
+    router = FakeRouter(REPORTS, failures=1)
+    patch_router(monkeypatch, router)
+    samples = [sample("found"), sample("nothing"), sample("found"), sample("nothing")]
+    args = write_args(tmp_path, plan_for(tmp_path, corpus), samples)
+    await judge_worker.run(args)
+    assert json.loads((args.out / "rewards.json").read_text()) == [0.5, 0.0, 0.5, 0.0]
+    assert sorted(p.name for p in args.out.glob("attempt-*")) == ["attempt-1", "attempt-2"]
+    receipt = json.loads((args.out / "cache-receipt.json").read_text())
+    assert receipt["replayed_calls"] >= 3
+
+
+@pytest.mark.asyncio
+async def test_a_group_that_stays_unknown_without_a_retry_is_withheld(
+    tmp_path, corpus, monkeypatch
+):
+    from grpo import judge_worker
+    from grpo.reward import GroupWithheld
+
+    router = FakeRouter(REPORTS, failures=99)
+    patch_router(monkeypatch, router)
+    samples = [sample("found")] * 4
+    args = write_args(tmp_path, plan_for(tmp_path, corpus, judge_retry_limit=0), samples)
+    with pytest.raises(GroupWithheld):
+        await judge_worker.run(args)
+    assert (args.out / "attempt-1/grades.json").exists()
+    assert not (args.out / "attempt-2").exists()
+    assert router.closed
+
+
+@pytest.mark.asyncio
+async def test_samples_from_another_row_are_refused_before_any_judge_request(
+    tmp_path, corpus, monkeypatch
+):
+    from grpo import judge_worker
+
+    router = FakeRouter(REPORTS)
+    patch_router(monkeypatch, router)
+    samples = [sample("found", row_id="another/group")] * 4
+    args = write_args(tmp_path, plan_for(tmp_path, corpus), samples)
+    with pytest.raises(ValueError, match="selected row"):
+        await judge_worker.run(args)
+    assert router.extract_prompts == [] and router.match_prompts == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        ({"reward": {**REWARD, "volume_allowance": None}}, "volume_allowance"),
+        ({"benchmark_judge": {"model": "other"}}, "benchmark judge"),
+    ],
+)
+async def test_an_unreviewed_reward_or_judge_stops_before_any_credential_or_router(
+    tmp_path, corpus, monkeypatch, change, message
+):
+    from grpo import judge_worker
+
+    async def unexpected(*_args, **_kwargs):
+        pytest.fail("Must stop before router initialization")
+
+    monkeypatch.setattr(judge_worker.RecordedJudgeRouter, "create", unexpected)
+    args = write_args(tmp_path, plan_for(tmp_path, corpus, **change), [sample("found")] * 4)
+    with pytest.raises(ValueError, match=message):
         await judge_worker.run(args)
     assert not args.out.exists()
 
 
-def transient_router(failures, error):
-    from grpo.reward import response_schema
-
-    class Router:
-        calls = 0
-
-        async def complete(self, *_args, **options):
-            Router.calls += 1
-            if Router.calls <= failures:
-                raise error
-            return SimpleNamespace(
-                content=response_schema("sgr_match")(assessments=[]),
-                input_tokens=10,
-                output_tokens=5,
-                cache_read_tokens=0,
-                raw_response=SimpleNamespace(
-                    model="gpt-6.1-sol",
-                    id="r1",
-                    status="completed",
-                    usage=None,
-                    model_dump_json=lambda **_: "{}",
-                ),
-            )
-
-    return Router
-
-
-MATCH_REQUEST = {
-    "method": "sgr_match",
-    "model": "gpt-6.1-sol",
-    "reasoning_effort": "high",
-    "system": "Selected",
-    "payload": {"candidate_findings": []},
-}
-
-
 @pytest.mark.asyncio
-async def test_transient_transport_failure_is_retried_with_separate_evidence(tmp_path):
-    from llm_router.errors import TransientProviderError
-
-    from grpo import judge_worker
-    from grpo.budget import JudgeBudget
-
-    router = transient_router(2, TransientProviderError("peer closed connection"))
-    budget = JudgeBudget(tmp_path / "ledger.json", cap=150)
-    (tmp_path / "calls").mkdir()
-    judge = judge_worker.RouterJudge(
-        router(), tmp_path / "calls", budget=budget, retries=2, backoff_seconds=0
-    )
-    assert await judge(MATCH_REQUEST) == {"assessments": []}
-    assert router.calls == 3
-    assert json.loads((tmp_path / "calls/call-0001/error.json").read_text())["type"] == (
-        "TransientProviderError"
-    )
-    assert (tmp_path / "calls/call-0003/usage.json").exists()
-    # Failed attempts keep their conservative reservations in the shared ledger.
-    calls = json.loads((tmp_path / "ledger.json").read_text())["calls"]
-    assert [call["status"] for call in calls] == ["settled"] * 3
-    assert all(call["budget_charge_usd"] == call["reserved_usd"] > 0 for call in calls[:2])
-
-
-@pytest.mark.asyncio
-async def test_transient_retries_are_bounded_and_other_errors_are_not_retried(tmp_path):
-    from llm_router.errors import TransientProviderError
-
+async def test_missing_dotenv_credentials_stop_before_training_grading(
+    tmp_path, corpus, monkeypatch
+):
     from grpo import judge_worker
 
-    for name in "abc":
-        (tmp_path / name).mkdir()
-    router = transient_router(5, TransientProviderError("gateway down"))
-    judge = judge_worker.RouterJudge(router(), tmp_path / "a", retries=1, backoff_seconds=0)
-    with pytest.raises(TransientProviderError):
-        await judge(MATCH_REQUEST)
-    assert router.calls == 2
+    async def unexpected(*_args, **_kwargs):
+        pytest.fail("Missing gateway credentials must stop before router initialization")
 
-    router = transient_router(5, ValueError("schema mismatch"))
-    judge = judge_worker.RouterJudge(router(), tmp_path / "b", retries=3, backoff_seconds=0)
-    with pytest.raises(ValueError):
-        await judge(MATCH_REQUEST)
-    assert router.calls == 1
-
-    with pytest.raises(ValueError, match="retries"):
-        judge_worker.RouterJudge(router(), tmp_path / "c", retries=9)
+    monkeypatch.setattr(judge_worker.RecordedJudgeRouter, "create", unexpected)
+    plan = plan_for(tmp_path, corpus, judge_env_file=str(tmp_path / "missing.env"))
+    args = write_args(tmp_path, plan, [sample("found")] * 4)
+    with pytest.raises(ValueError, match="gateway credential file"):
+        await judge_worker.run(args)
+    assert not args.out.exists()

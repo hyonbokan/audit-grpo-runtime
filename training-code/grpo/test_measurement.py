@@ -1,59 +1,46 @@
-"""Per-row coverage metrics from four graded draws."""
+"""Per-row coverage metrics from a graded group."""
+
+import pytest
+
+from grpo import measurement
+from testing.judge import TRUTH_IDS, private_row
 
 
-def test_coverage_unions_gt_and_keeps_unknown_draws_visible():
-    from grpo import measurement
+def graded(matched_targets, findings):
+    return {
+        "status": "graded",
+        "reward": 0.1,
+        "findings_count": findings,
+        "exact_matches": len(matched_targets),
+        "verdicts": [
+            {"target_index": i, "is_match": i in matched_targets, "explanation": "x"}
+            for i in range(2)
+        ],
+    }
 
+
+def test_coverage_unions_labels_across_draws_and_keeps_unknown_and_truncated_visible():
     grades = [
-        {
-            "reward": 1.2,
-            "components": {
-                "format_valid": True,
-                "raw_findings": 1,
-                "hits": 1,
-                "quality_sum": 1,
-                "unambiguous_pairs": [["g0", "c0"]],
-                "withheld_reasons": [],
-            },
-        },
-        {
-            "reward": 0.95,
-            "components": {
-                "format_valid": True,
-                "raw_findings": 2,
-                "hits": 1,
-                "quality_sum": 0.2,
-                "unambiguous_pairs": [["g0", "c0"]],
-                "withheld_reasons": [],
-            },
-        },
-        {
-            "reward": None,
-            "components": {
-                "format_valid": True,
-                "raw_findings": 1,
-                "hits": None,
-                "quality_sum": None,
-                "unambiguous_pairs": [["g1", "c1"]],
-                "withheld_reasons": ["judge_error"],
-            },
-        },
-        {
-            "reward": -2,
-            "components": {
-                "format_valid": False,
-                "raw_findings": 0,
-                "hits": None,
-                "quality_sum": None,
-                "withheld_reasons": [],
-            },
-        },
+        graded({0}, 4),
+        graded({0}, 2),
+        {"status": "truncated", "reward": 0.0},
+        {"status": "unknown", "reward": None, "error": "ValueError: x"},
     ]
-    samples = [{"reasoning": "Sampled reasoning"}] * 4
-    result = measurement.group_metrics("row", ["g0", "g1"], grades, samples)
+    result = measurement.group_metrics(private_row(), grades)
+    assert result["row_id"] == "audit/group-123"
+    assert result["eligible_gt_ids"] == TRUTH_IDS
+    assert result["caught_gt_ids"] == ["archive:1"]
     assert result["known_gt_coverage"] == 0.5
-    assert result["caught_gt_ids"] == ["g0"]
-    assert result["unknown_draws"] == 1
-    assert result["valid_final_trace_rate"] == 0.75
-    assert result["mean_findings"] == 1
-    assert result["quality_per_hit"] == 0.6
+    assert (result["unknown_draws"], result["truncated_draws"]) == (1, 1)
+    assert result["mean_findings"] == 3.0
+    assert result["mean_exact_matches"] == 1.0
+
+
+def test_a_group_with_no_graded_draw_has_no_findings_mean():
+    grades = [{"status": "truncated", "reward": 0.0}] * 4
+    assert measurement.group_metrics(private_row(), grades)["mean_findings"] is None
+
+
+def test_a_group_of_other_than_four_draws_is_refused():
+    with pytest.raises(ValueError, match="four"):
+        measurement.group_metrics(private_row(), [graded(set(), 1)] * 3)
