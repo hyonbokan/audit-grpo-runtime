@@ -95,6 +95,8 @@ def load_policy(
         text_only=True,
         return_logits=True,
         max_seq_length=plan["model"]["context_limit"],
+        # Sequence-tiled MLP recompute: bounds the largest per-layer activation on long sequences.
+        unsloth_tiled_mlp=config["tiled_mlp"],
         **load_options(config["update_placement"]),
     )
     model = FastModel.get_peft_model(
