@@ -16,6 +16,7 @@ document states what they showed. Hardware limits are in [compute-planning.md](c
 | No hard time stop: training in segments with evaluation pauses | 2026-10-22 |
 | Judge spend under a ledger cap with headroom | 2026-10-22 |
 | Update memory: all layers streamed (`offload_layers` 64) + `tiled_mlp` on the 2-GPU split | 2026-10-22 |
+| First campaign ends at step 100: segments 0 → 25 → 50 → 100, evaluation pauses at 25, 50 and 100 | 2026-10-23 |
 
 ## Open decisions (recommendation first)
 
@@ -31,7 +32,8 @@ document states what they showed. Hardware limits are in [compute-planning.md](c
 
 - **Prompt:** one user message, `benchmark_free_text.audit_prompt(sources)` with the evaluation's
   file rendering, shared by both paths; no system prompt and no answer format. The training rows
-  are re-rendered into a new derived corpus (same rows, splits and labels). The previous training
+  are re-rendered into a new derived corpus (same rows and splits; labels that need context the
+  prompt does not carry are dropped, with the counts kept in the private evidence note). The previous training
   prompt added a production system prompt and a JSON answer contract; both go.
 - **Grading:** the evaluation's path unchanged: one judge call extracts the vulnerabilities the
   report asserts, then the one-to-one matcher grades them against the known findings (2-of-3
@@ -120,21 +122,30 @@ project mean; against the frozen medium base):
 A null result is reported, not extended.
 
 **Segments.** One `schedules.json` entry per segment: step 0 → 25 from a zero-initialised adapter,
-then → 50, → 100 and every 50. At each pause: merge, evaluate, publish with `publish-results.sh`,
-decide. Every evaluated checkpoint is published (choosing the best on the same five projects would
-select on the test set). O4: continue while a pause improves on the previous one by ≥ 0.03 in
-volume-matched recall or per-draw F1, or the mean reward over the last 25 groups still rises.
+then → 50 and → 100 (25, 25 and 50 updates). The campaign ends at step 100; going further needs a
+new decision and a raised judge cap. At each pause: merge, evaluate, publish with
+`publish-results.sh`, decide. Every evaluated checkpoint is published (choosing the best on the
+same five projects would select on the test set). O4, at the step-25 and step-50 pauses: continue
+while the pause improves on the previous one by ≥ 0.03 in volume-matched recall or per-draw F1, or
+the mean reward over the last 25 groups still rises. The step-100 pause ends the campaign.
 Cutoffs are set at ~3× the expected segment time, as hang detectors.
+
+Resume state (optimizer, scheduler, RNG) is kept for the newest two checkpoints and for steps 25
+and 50 (`storage.resume_steps_pinned`), so a failed segment restarts from its pause.
 
 Entry fields: `policy_reasoning_effort` medium, `tensor_parallel_size` 2, the 2-GPU
 `update_placement`, `offload_layers` 64, `tiled_mlp` true, cap and row filter from the length
 probe, learning rate from the probe with 5-update warmup.
 
 **Time.** Medium visit ≈ 45–70 min (rollout 20–40, grading 5–10, update 15–25, reloads): 25
-updates ≈ 2–2.5 days; an evaluation pause ≈ 5 h.
+updates ≈ 2–2.5 days (about half of groups give an update, so a step takes ~2 visits); an
+evaluation pause ≈ 5 h. Step 100 ≈ 200 visits ≈ 6–10 days plus three pauses ≈ 15 h.
 
-**Judge budget (O5).** ≈ $0.2–0.4 per group and $4–5 per evaluation pause; 200 groups + 6 pauses
-≈ $70–110. Ledger cap $150 (the ledger refuses calls past it); $40 per segment; $15 per evaluation.
+**Judge budget (O5).** ≈ $0.2–0.4 per group and $4–5 per evaluation pause. Every group is graded,
+including those that give no update, so step 100 takes ≈ 200 groups: groups $40–80, three pauses
+$12–15, frozen medium base and LR probe ≈ $5, total ≈ $57–100. Ledger cap $150 (the ledger refuses
+calls past it) leaves headroom for re-grades and one relaunch per segment; $40 per segment (the
+50 → 100 segment is ≈ 100 groups, $20–40); $15 per evaluation.
 
 **Retries and stops.** Visits follow `failure_policy` (2 attempts; 2 consecutive failed visits
 stop the segment). One relaunch per segment after a fix; a second failure means a design change.
@@ -143,12 +154,22 @@ Stops: 2 consecutive withheld groups; > 10% of the last 20 draws truncated; mean
 
 ## 7. Work before training
 
-1. Shared free-text prompt rendering and the derived corpus.
-2. Free-text reward on `benchmark_free_text.grade_draw` with the §2 formula; new reward contract;
-   JSON reward path archived.
-3. Truncation scored 0 and recorded; truncation-rate and collapse stops in `controller`.
-4. Zero-initialised step-0 adapter checkpoint.
-5. Overlap guard in `prepare`; volume-matched recall in the comparison and publish output.
+Items 1–5 were done on 2026-10-23 (CPU tests only; no GPU or paid call has run them):
+
+1. Shared free-text prompt rendering and the derived corpus (`free_text_corpus.py`).
+2. Free-text reward on `benchmark_free_text.grade_draw` with the §2 formula, on the evaluation's
+   judge path; new reward contract (`training.reward`, hashed into every visit's grading);
+   JSON reward path archived. `volume_allowance` stays unset until O1.
+3. Truncation scored 0 and recorded; stops on the truncated-draw rate and on collapsed reports
+   in `controller` (`schedules.json`). Two consecutive withheld groups are two consecutive
+   failed visits under `failure_policy`.
+4. Zero-initialised step-0 adapter checkpoint (`initial_checkpoint.py`); the optimizer restore
+   and the backup check accept an empty optimizer at step 0 only.
+5. Overlap guard in `prepare` (file contents against the five evaluation projects, for the rows
+   this run may train); volume-matched recall and the acceptance conditions in the suite
+   report. Published F1 uses each known vulnerability once across draws, as the published
+   table does. A base draw is cut by keeping its first findings; a match counts when its
+   matched finding lies inside the cut.
 6. GPU, no judge: medium length probe (rollout only) for the cap and row filter.
 7. GPU + judge: frozen medium base run (~5 h, ~$4); learning-rate probe (~$1).
 8. Segment 1 schedule entry.
@@ -161,5 +182,8 @@ Stops: 2 consecutive withheld groups; > 10% of the last 20 draws truncated; mean
 - 2026-10-22: a 48 h window and fixed judge caps proposed; revised to segments with pauses and a
   $150 ledger cap (GPUs are free on the A6000 host).
 - 2026-10-22: a fixed LR of 2e-5 proposed; revised to measured movement plus a probe.
+- 2026-10-23: segments "and every 50" past step 100 dropped; the budget counted groups while the
+  schedule counts updates (≈ 2 groups per update), so step 200 would have needed ≈ 400 groups and
+  reached the $150 cap. First campaign ends at step 100.
 - 2026-10-22: the long-sequence fit settled the effort (medium). An interim reading that weight
   streaming freed nothing on the 2-GPU split came from nvidia-smi and was wrong.

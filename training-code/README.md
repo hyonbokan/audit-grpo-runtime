@@ -27,9 +27,11 @@ in `../private/` (not in git; start with its README).
 | `hf_backup.py` | Verified private HF backups (thin every `visit_backup_interval` visits, full at start and end). |
 | `retention.py` | Disk retention: prunes resume state and adapter copies, releases evaluated merges, checks free space. |
 | `audited_corpus.py`, `corpus_*.py` | Builds the frozen training corpus from human-audit labels. |
+| `initial_checkpoint.py` | The step-0 checkpoint: base-equivalent adapter (B zero, A standard init), empty optimizer, resumable state files. |
+| `free_text_corpus.py` | Derives the free-text corpus from that one: the evaluation's prompt over the same rows, evaluation-shaped truth, re-tokenized requests and the frozen judge template (`--source --out --model-path --benchmark-assets`). Training reads this corpus (`dataset_host`, `dataset_workspace`). |
 | `private/` | Not in git: the frozen policy rendering (production audit prompt and answer schema) that the corpus builder and reward worker hash. Copy it in before a run; both fail loudly without it. |
 | `grpo/` | Native update (`corrected_update`, `corrected_loss`, `native_policy`), judge (`judge_worker`, `reward`, `budget`, `judge_cache`). |
-| `inference/` | vLLM rollout, adapter transfer checks, evaluation and benchmark grading. |
+| `inference/` | vLLM rollout, adapter transfer checks, evaluation and benchmark grading; `volume_matched.py` and the suite's acceptance block (volume-matched recall, published F1, graded draws). |
 | `runtime_io.py` | JSON files, hashes, deadlines and result directories. |
 | `provenance.py` | Writes `SOURCE_SHA256SUMS`, which every launcher verifies. |
 
@@ -52,7 +54,7 @@ bash training-code/run-tests.sh judge      # one suite: judge (Python 3.14), nat
 Neither runs GPU work, network calls or paid judging. Every listed test must pass; there
 is no known-failure list. `run-tests-local.sh` uses this repository's backend in place of
 the frozen one and cannot import vLLM, so it names the vLLM test files it does not run.
-Judge tests use the synthetic reward contract and one-row workspace in `testing/judge.py`;
+Judge tests use the synthetic marker judges, fake router and one-row corpus in `testing/judge.py`;
 shared config builders are in `testing/` (excluded from `SOURCE_SHA256SUMS`).
 
 ## Start a training run
@@ -61,11 +63,18 @@ Each host needs `../host.env` (git-ignored; copy `../host.env.example`) naming i
 directory. The launchers exit 2 without it.
 
 1. Add the schedule to `schedules.json` (`training_cutoff`, `final_deadline`, `training`
-   steps and group limits; anything unset takes `defaults`). An unregistered
-   `schedule_id` is rejected.
-2. Write `runs/RUN/config.json` with that `schedule_id`, the starting checkpoint and
-   its adapter hash, dataset paths, `hf_repo` and `judge_env_file`.
-3. Freeze and launch:
+   steps and group limits, `training.reward.volume_allowance`, `storage.resume_steps_pinned`;
+   anything unset takes `defaults`). An unregistered `schedule_id` is rejected, and the reward
+   fails until `volume_allowance` is set.
+2. From a fresh run only: make the step-0 checkpoint (adapter equal to the base, empty optimizer)
+   from any earlier checkpoint of the same model, with the learning rate the first visit uses:
+   `python -m initial_checkpoint --template CHECKPOINT --out runs/start/checkpoint-0 --seed N
+   --learning-rate LR`. It prints the adapter hash.
+3. Write `runs/RUN/config.json` with that `schedule_id`, the starting checkpoint and
+   its adapter hash, the dataset paths (the derived free-text corpus), `benchmark_assets` and
+   `benchmark_manifest_sha256` (`prepare` refuses a training row that shares a file with an
+   evaluation project), `hf_repo` and `judge_env_file`.
+4. Freeze and launch:
 
 ```bash
 python3 training-code/provenance.py
@@ -121,7 +130,8 @@ Nothing has to be cleaned by hand during a run; the policy is `storage` in `sche
 - After every recorded visit, `controller prune` deletes the vLLM adapter copies
   (`rollout/mapped-adapter/`; the rollout receipt keeps their hashes) and the
   resume-only files (`optimizer.pt`, `scheduler.pt`, `rng_state.pth`) of every accepted
-  checkpoint except the newest `resume_states_kept`. Adapters are never deleted. Each
+  checkpoint except the newest `resume_states_kept` and the steps in `resume_steps_pinned`
+  (restart points for evaluation pauses). Adapters are never deleted. Each
   deletion is appended to the run's `retention.json`.
 - The final merge is deleted after the benchmark suite. The `MERGE_MANIFEST.json` is kept in the
   run's `merge-receipts/`; `launch-training.sh` re-merges from the adapter if needed again.
@@ -131,10 +141,16 @@ Nothing has to be cleaned by hand during a run; the policy is `storage` in `sche
 
 ## Judge calls
 
-- Transport errors (`TransientProviderError`, `RateLimitError`) retry with 30/60/120 s
-  backoff, `judge_call_retries` times (0-5, default 3). Budget exhaustion stops grading.
-- Paid responses are cached per visit in `judge-cache/`, so a retried or resumed group
+- Training grades with the evaluation's judge path (`inference/benchmark_judge.py`): one
+  extraction call per draw, then 3-vote one-to-one matching, all on the judge in
+  `benchmark_scope.json`. A failed call casts no vote; a draw with an unknown grade makes the
+  worker regrade the whole group once from the cache, and a group still unknown is withheld
+  (the visit fails). A draw that hit the length cap scores 0 and is never judged. Budget
+  exhaustion stops grading.
+- Paid responses are cached per visit in `judge-cache/`, so a regraded or resumed group
   pays only for calls that never completed.
+- The reward is `schedules.json` `training.reward` (formula version and `volume_allowance`, which
+  must be set per schedule); the grading output keeps `reward-contract.json` with its hash.
 - The live container (`audit-grpo-live`) holds the credentials and the network access;
   start or reuse it with `bash training-code/start-live.sh`. Every other container runs
   without network.

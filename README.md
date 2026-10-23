@@ -65,9 +65,9 @@ launch instructions live in its [README](training-code/README.md).
 |---|---|---|
 | Run orchestration | `launch-training.sh`, `controller.py`, `progress.py`, `schedules.py` | Choose visits, enforce the reviewed schedule, track the accepted policy and coordinate phases. |
 | One training cycle | `launch-cycle.sh`, `cycle_contract.py` | Run rollout, grading and update; check evidence before accepting an update. |
-| Policy inputs | `audited_corpus.py`, `frozen_requests.py`, `grpo/policy_prompt.py` | Build the corpus and freeze the prompt rendering and tokens used in training. |
+| Policy inputs | `audited_corpus.py`, `free_text_corpus.py`, `frozen_requests.py`, `grpo/policy_prompt.py` | Build the corpus and freeze the prompt rendering and tokens used in training. |
 | Generation and transfer | `inference/rollout.py`, `inference/adapter_compat.py` | Run vLLM, capture sampled tokens and log-probabilities, and verify the adapter loaded by inference workers. |
-| Reward and judging | `grpo/judge_worker.py`, `grpo/reward.py`, `grpo/budget.py`, `grpo/judge_cache.py` | Grade candidates, enforce the reward contract and paid-call limits, and cache completed judging. |
+| Reward and judging | `grpo/judge_worker.py`, `grpo/reward.py`, `grpo/budget.py`, `grpo/judge_cache.py` | Grade free-text reports with the evaluation judge, score recall with the volume allowance, enforce paid-call limits and cache completed judging. |
 | Policy update | `grpo/corrected_update.py`, `grpo/corrected_loss.py` | Calculate advantages and the corrected objective, backpropagate, and take the optimizer step. |
 | Model execution | `grpo/native_policy.py`, `grpo/placement.py`, `grpo/memory_compat.py` | Load through Unsloth, attach PEFT adapters, place layers and manage memory/offloading. |
 | Evaluation | `panels.py`, `inference/`, evaluation launchers | Run held-out comparisons against the frozen base, separately from training rewards. |
