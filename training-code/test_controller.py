@@ -652,6 +652,7 @@ def test_final_evaluation_runs_only_the_trained_arm_against_the_frozen_base(tmp_
     suite = json.loads((Path(suite_root) / "config.json").read_text())
     assert suite["output_format"] == "free_text" and suite["trained_label"] == "checkpoint-7"
     assert [p["name"] for p in suite["projects"]] == list(hashes)
+    assert suite["acceptance"] == schedules.scope(config)["acceptance"]
     for project in suite["projects"]:
         name = project["name"]
         base_run = pattern.format(project=name)

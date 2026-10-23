@@ -302,3 +302,118 @@ def test_suite_report_charges_one_shared_generation_call_once(tmp_path):
     assert result["cost"]["generation_compute_estimate_usd"] == pytest.approx(0.24)
     assert result["shared_generation"]["generation_seconds"] == 240
     assert result["projects"][0]["execution"]["checkpoint-7"]["completion_tokens"] == 9
+
+
+# --- Acceptance
+
+ACCEPTANCE = {"minimum_volume_matched_gain": 0.03, "minimum_graded_trained_draws": 7}
+
+
+def matched_project(name, base, trained, label="checkpoint-2"):
+    """A project of four draws per arm; each arm is (matched indices, findings) for every draw."""
+    from testing.benchmark import verdict_draw
+
+    def arm(spec):
+        return [verdict_draw(4, spec[0], spec[1]) for _ in range(4)]
+
+    return {
+        "name": name,
+        "known_gt_count": 4,
+        "comparison": {
+            "output_format": "free_text",
+            "draws": {"base": arm(base), label: arm(trained)},
+        },
+    }
+
+
+def acceptance_rows():
+    return [
+        matched_project("a", ([0, 15], 20), ([0, 1], 2)),
+        matched_project("b", ([0], 6), ([0], 6)),
+    ]
+
+
+def summarize_with(rows, acceptance=ACCEPTANCE):
+    from benchmark_suite import summarize_suite
+
+    return summarize_suite(
+        rows, sample_count=4, checkpoint_label="checkpoint-2", acceptance=acceptance
+    )
+
+
+def test_each_project_reports_the_trained_recall_against_the_base_cut_to_its_length():
+    projects = summarize_with(acceptance_rows())["projects"]
+    assert projects[0]["volume_matched"]["gain"] == pytest.approx(0.5 - 0.25)
+    assert projects[1]["volume_matched"]["gain"] == pytest.approx(0.0)
+
+
+def test_acceptance_pools_projects_without_weighting_and_compares_published_f1():
+    from benchmark_matching import native_metrics
+
+    acceptance = summarize_with(acceptance_rows())["acceptance"]
+    assert acceptance["macro_volume_matched_gain"] == pytest.approx(0.125)
+    assert acceptance["volume_matched_gain_passes"] is True
+    base_f1 = native_metrics(8, 104, 3, 0)["f1"]
+    trained_f1 = native_metrics(8, 32, 3, 0)["f1"]
+    assert acceptance["published_f1"] == {
+        "base": pytest.approx(base_f1),
+        "checkpoint-2": pytest.approx(trained_f1),
+    }
+    assert acceptance["published_f1_passes"] is True
+    assert (acceptance["graded_trained_draws"], acceptance["trained_draws"]) == (8, 8)
+    assert acceptance["graded_draws_pass"] is True
+    assert acceptance["accepted"] is True
+
+
+def test_a_gain_below_the_threshold_fails_acceptance():
+    rows = [matched_project("a", ([0], 6), ([0], 6)), matched_project("b", ([0], 6), ([0], 6))]
+    acceptance = summarize_with(rows)["acceptance"]
+    assert acceptance["volume_matched_gain_passes"] is False
+    assert acceptance["accepted"] is False
+
+
+def test_lower_published_f1_fails_acceptance_even_with_a_recall_gain():
+    rows = [
+        matched_project("a", ([0], 2), ([0, 1], 40)),
+        matched_project("b", ([0], 2), ([0, 1], 40)),
+    ]
+    acceptance = summarize_with(rows)["acceptance"]
+    assert acceptance["macro_volume_matched_gain"] > 0.03
+    assert acceptance["published_f1_passes"] is False
+    assert acceptance["accepted"] is False
+
+
+def test_too_few_graded_trained_draws_fail_acceptance():
+    from testing.benchmark import verdict_draw
+
+    rows = acceptance_rows()
+    rows[0]["comparison"]["draws"]["checkpoint-2"][0] = verdict_draw(4, [], 0, "unknown")
+    rows[0]["comparison"]["draws"]["checkpoint-2"][1] = verdict_draw(4, [], 0, "unknown")
+    acceptance = summarize_with(rows)["acceptance"]
+    assert (acceptance["graded_trained_draws"], acceptance["graded_draws_pass"]) == (6, False)
+    assert acceptance["accepted"] is False
+
+
+def test_acceptance_is_undecided_until_every_project_has_a_comparison():
+    rows = acceptance_rows()
+    rows[1]["comparison"] = None
+    acceptance = summarize_with(rows)["acceptance"]
+    assert acceptance["complete"] is False and acceptance["accepted"] is None
+
+
+def test_without_acceptance_settings_the_report_has_no_acceptance_block():
+    assert summarize_with(acceptance_rows(), acceptance=None)["acceptance"] is None
+
+
+def test_the_rendered_report_states_each_acceptance_condition():
+    from benchmark_suite import render_report
+
+    result = {**summarize_with(acceptance_rows()), "reasoning_effort": "medium"}
+    markdown = render_report(result)
+    assert "Acceptance: **pass**" in markdown
+    assert "Volume-matched recall gain (needs ≥ 0.03): +0.125 (pass)" in markdown
+    assert "Graded checkpoint-2 draws (needs ≥ 7 of 8): 8 (pass)" in markdown
+    undecided = summarize_with(
+        [*acceptance_rows()[:1], {**acceptance_rows()[1], "comparison": None}]
+    )
+    assert "Acceptance: **undecided**" in render_report({**undecided, "reasoning_effort": "medium"})

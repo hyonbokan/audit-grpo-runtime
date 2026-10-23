@@ -11,6 +11,7 @@
     "truncation_window_draws": 20,
     "minimum_mean_findings": 3,
     "findings_window_groups": 5,
+    "acceptance": {"minimum_volume_matched_gain": 0.03, "minimum_graded_trained_draws": 19},
     "rate_usd_per_hour": 2.51,
     "merge_cache": "/workspace/cache/weekend-merges",
     "storage": {

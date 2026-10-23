@@ -121,6 +121,7 @@ def evaluation_configs(config: dict, out: Path) -> list[str]:
         "stop_on_project_failure": False,
         "judge_ledger": config["judge_ledgers"]["evaluation"],
         "rate_usd_per_hour": reviewed["rate_usd_per_hour"],
+        "acceptance": reviewed["acceptance"],
     }
     root = new_result_dir(config, out.name + "-evaluation")
     save_json(root / "config.json", suite)

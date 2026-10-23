@@ -12,6 +12,7 @@ import benchmark_free_text as free_text
 from benchmark_matching import native_metrics
 from generation import validate_shared_engine
 from runtime_io import read_json, save_json, seconds_until, utc_now
+from volume_matched import volume_matched_gain
 
 # Leaves time to grade and report after the shared engine stops.
 SUITE_DEADLINE_MARGIN_SECONDS = 60
@@ -127,7 +128,13 @@ def write_report(config: dict[str, Any], out: Path) -> None:
                     )
                 }
         records.append({**project, "comparison": comparison, "execution": execution})
-    result = summarize_suite(records, sample_count=config["sampling"]["n"], checkpoint_label=label)
+    result = summarize_suite(
+        records,
+        sample_count=config["sampling"]["n"],
+        checkpoint_label=label,
+        # Suites configured before 2026-10-23 set no acceptance conditions.
+        acceptance=config.get("acceptance"),
+    )
     # A shared engine records one duration for every project's trained arm.
     shared_path = out / "rollout-receipt.json"
     shared = read_json(shared_path) if shared_path.is_file() else None
@@ -162,7 +169,11 @@ def write_report(config: dict[str, Any], out: Path) -> None:
 
 
 def summarize_suite(
-    projects: list[dict[str, Any]], *, sample_count: int, checkpoint_label: str
+    projects: list[dict[str, Any]],
+    *,
+    sample_count: int,
+    checkpoint_label: str,
+    acceptance: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     summaries, completed = [], []
     for project in projects:
@@ -191,6 +202,9 @@ def summarize_suite(
                     "draw_statuses": [draw["status"] for draw in draws],
                     **(arm_summary(draws) if known else {}),
                 }
+            summary["volume_matched"] = volume_matched_gain(
+                comparison["draws"]["base"], comparison["draws"][checkpoint_label]
+            )
             summary["status"] = (
                 "complete"
                 if all(a["status"] == "graded" for a in summary["arms"].values())
@@ -223,6 +237,11 @@ def summarize_suite(
             "project_names": [p["name"] for p in completed],
             "aggregates": aggregates,
         },
+        "acceptance": None
+        if acceptance is None
+        else acceptance_report(
+            summaries, aggregates, acceptance, sample_count=sample_count, label=checkpoint_label
+        ),
         "quality_gain_established": False,
         "sample_count": sample_count,
         "output_format": "free_text",
@@ -233,6 +252,61 @@ def summarize_suite(
             "Detection scores alone do not establish general reasoning or retention gains.",
         ],
     }
+
+
+def acceptance_report(
+    summaries: list[dict[str, Any]],
+    aggregates: dict[str, Any] | None,
+    settings: dict[str, Any],
+    *,
+    sample_count: int,
+    label: str,
+) -> dict[str, Any]:
+    """The reviewed acceptance conditions; each is undecided until every project is compared."""
+    compared = [s for s in summaries if "volume_matched" in s]
+    complete = bool(summaries) and len(compared) == len(summaries)
+    report: dict[str, Any] = {
+        "complete": complete,
+        "minimum_volume_matched_gain": settings["minimum_volume_matched_gain"],
+        "minimum_graded_trained_draws": settings["minimum_graded_trained_draws"],
+        "macro_volume_matched_gain": None,
+        "volume_matched_gain_passes": None,
+        "published_f1": None,
+        "published_f1_passes": None,
+        "graded_trained_draws": None,
+        "trained_draws": sample_count * len(summaries),
+        "graded_draws_pass": None,
+        "accepted": None,
+    }
+    if not complete:
+        return report
+    gains = [s["volume_matched"]["gain"] if s["volume_matched"] else None for s in compared]
+    if None not in gains:
+        report["macro_volume_matched_gain"] = mean(gains)
+        report["volume_matched_gain_passes"] = (
+            report["macro_volume_matched_gain"] >= settings["minimum_volume_matched_gain"]
+        )
+    graded = sum(s["arms"][label]["draw_statuses"].count("graded") for s in compared)
+    report["graded_trained_draws"] = graded
+    report["graded_draws_pass"] = graded >= settings["minimum_graded_trained_draws"]
+    if aggregates is not None and all(s["status"] == "complete" for s in summaries):
+        known = sum(s["known_gt_count"] for s in summaries)
+        # Published results count each known vulnerability once across a project's draws.
+        report["published_f1"] = {
+            arm: native_metrics(
+                known, aggregates[arm]["findings_total"], aggregates[arm]["unique_exact_gt"], 0
+            )["f1"]
+            for arm in ("base", label)
+        }
+        report["published_f1_passes"] = (
+            report["published_f1"][label] >= report["published_f1"]["base"]
+        )
+    checks = [
+        report[key]
+        for key in ("volume_matched_gain_passes", "published_f1_passes", "graded_draws_pass")
+    ]
+    report["accepted"] = False if False in checks else (None if None in checks else True)
+    return report
 
 
 def arm_summary(draws: list[dict[str, Any]]) -> dict[str, Any]:
@@ -342,6 +416,8 @@ def render_report(result: dict[str, Any]) -> str:
                 value = arm.get("mean_draw_metrics", {}).get(metric)
                 values.append(f"{value:.2%}" if value is not None else "pending/unknown")
         lines.append(f"| {project['name']} | {project['known_gt_count']} | {' | '.join(values)} |")
+    if result["acceptance"]:
+        lines.extend(render_acceptance(result["acceptance"], trained))
     lines.extend(
         [
             "",
@@ -354,6 +430,27 @@ def render_report(result: dict[str, Any]) -> str:
         ]
     )
     return "\n".join(lines)
+
+
+def render_acceptance(acceptance: dict[str, Any], trained: str) -> list[str]:
+    def verdict(passed: bool | None) -> str:
+        return "undecided" if passed is None else "pass" if passed else "FAIL"
+
+    gain, f1 = acceptance["macro_volume_matched_gain"], acceptance["published_f1"]
+    gain_text = "n/a" if gain is None else f"{gain:+.3f}"
+    f1_text = "n/a" if f1 is None else f"{f1['base']:.3f} then {f1[trained]:.3f}"
+    return [
+        "",
+        f"Acceptance: **{verdict(acceptance['accepted'])}**",
+        "",
+        f"- Volume-matched recall gain (needs ≥ {acceptance['minimum_volume_matched_gain']}): "
+        f"{gain_text} ({verdict(acceptance['volume_matched_gain_passes'])})",
+        f"- Published F1, base then {trained}: {f1_text} "
+        f"({verdict(acceptance['published_f1_passes'])})",
+        f"- Graded {trained} draws (needs ≥ {acceptance['minimum_graded_trained_draws']} of "
+        f"{acceptance['trained_draws']}): {acceptance['graded_trained_draws']} "
+        f"({verdict(acceptance['graded_draws_pass'])})",
+    ]
 
 
 if __name__ == "__main__":

@@ -39,6 +39,34 @@ def project(name, known, base, trained, label="checkpoint-2"):
     }
 
 
+def verdict_draw(known, matched_at, findings, status="graded"):
+    """A draw whose exact matches sit at the given indices of its extracted findings."""
+    if status != "graded":
+        return {"status": status, "known_gt_count": known}
+    fixed = {
+        "is_partial_match": False,
+        "severity_from_truth": "High",
+        "severity_from_junior_auditor": "High",
+    }
+    verdicts = [
+        {"target_index": t, "is_match": True, "index_of_finding_from_junior_auditor": i, **fixed}
+        for t, i in enumerate(matched_at)
+    ]
+    verdicts += [
+        {"target_index": t, "is_match": False, "index_of_finding_from_junior_auditor": -1, **fixed}
+        for t in range(len(matched_at), known)
+    ]
+    return {
+        "status": "graded",
+        "known_gt_count": known,
+        "exact_matches": len(matched_at),
+        "partial_matches": 0,
+        "findings_count": findings,
+        "unmatched_findings": findings - len(matched_at),
+        "verdicts": verdicts,
+    }
+
+
 def free_text_configuration(row_id="solidity/munchables", *, extra_verification=False):
     """A reviewed base-only, xhigh-effort, four-draw free-text benchmark config."""
     scope = json.loads((ROOT / "benchmark_scope.json").read_text())
