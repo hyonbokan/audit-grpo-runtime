@@ -15,22 +15,28 @@ GIB = 2**30
 # --- Visits
 
 
-def prune_visits(state: dict, resume_states_kept: int) -> list[dict]:
-    """Remove adapter copies from every visit and resume state from all but the newest steps."""
+def prune_visits(state: dict, resume_states_kept: int, pinned_steps: list[int]) -> list[dict]:
+    """Remove adapter copies everywhere and resume state outside the newest and pinned steps."""
     if type(resume_states_kept) is not int or resume_states_kept < 1:
         raise ValueError("storage.resume_states_kept must be an integer of at least 1")
+    if type(pinned_steps) is not list or any(
+        type(step) is not int or step < 1 for step in pinned_steps
+    ):
+        raise ValueError("storage.resume_steps_pinned must be a list of positive integers")
     removed = []
     for visit in state["visits"]:
         # The copy of the adapter that vLLM loaded; the rollout receipt keeps its hashes.
         removed += remove_tree(Path(visit["root"]) / "rollout/mapped-adapter")
     checkpoints = [
-        Path(visit["root"]) / "update" / f"checkpoint-{visit['update']['global_step']}"
+        (visit["update"]["global_step"], Path(visit["root"]) / "update")
         for visit in state["visits"]
         if visit["decision"] == "update"
     ]
-    for checkpoint in checkpoints[:-resume_states_kept]:
+    for step, update_root in checkpoints[:-resume_states_kept]:
+        if step in pinned_steps:
+            continue
         for name in sorted(RESUME_ONLY_NAMES):
-            removed += remove_file(checkpoint / name)
+            removed += remove_file(update_root / f"checkpoint-{step}" / name)
     return removed
 
 

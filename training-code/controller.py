@@ -93,7 +93,8 @@ def phase_backup_due(config: dict, out: Path, _attempts: int) -> list[str]:
 def phase_prune(config: dict, out: Path, _attempts: int) -> list[str]:
     """Free resume state and adapter copies no later phase reads; append the record."""
     state = read_json(out / "state.json")
-    removed = prune_visits(state, scope(config)["storage"]["resume_states_kept"])
+    storage = scope(config)["storage"]
+    removed = prune_visits(state, storage["resume_states_kept"], storage["resume_steps_pinned"])
     path = out / "retention.json"
     record = read_json(path) if path.is_file() else []
     record.append({"utc": utc_now().isoformat(), "removed": removed})

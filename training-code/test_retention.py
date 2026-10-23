@@ -46,7 +46,7 @@ def run(tmp_path):
 
 def test_prune_keeps_resume_state_for_the_latest_accepted_checkpoints_only(run):
     results, state = run
-    removed = retention.prune_visits(state, resume_states_kept=2)
+    removed = retention.prune_visits(state, resume_states_kept=2, pinned_steps=[])
     oldest = results / "run-visit-001/update/checkpoint-3"
     assert sorted(p.name for p in oldest.iterdir()) == sorted(KEPT_FILES)
     for kept in ("run-visit-003/update/checkpoint-4", "run-visit-004/update/checkpoint-5"):
@@ -56,7 +56,7 @@ def test_prune_keeps_resume_state_for_the_latest_accepted_checkpoints_only(run):
 
 def test_prune_removes_every_rollout_adapter_copy_but_keeps_receipts(run):
     results, state = run
-    removed = retention.prune_visits(state, resume_states_kept=2)
+    removed = retention.prune_visits(state, resume_states_kept=2, pinned_steps=[])
     for index in range(1, 5):
         assert not (results / f"run-visit-{index:03d}/rollout/mapped-adapter").exists()
         assert (results / f"run-visit-{index:03d}/rollout/receipt.json").is_file()
@@ -65,7 +65,7 @@ def test_prune_removes_every_rollout_adapter_copy_but_keeps_receipts(run):
 
 def test_prune_never_removes_the_current_checkpoints_resume_state(run):
     results, state = run
-    retention.prune_visits(state, resume_states_kept=1)
+    retention.prune_visits(state, resume_states_kept=1, pinned_steps=[])
     current = Path(state["current_checkpoint"])
     assert {p.name for p in current.iterdir()} == set(RESUME_FILES + KEPT_FILES)
     previous = results / "run-visit-003/update/checkpoint-4"
@@ -74,15 +74,31 @@ def test_prune_never_removes_the_current_checkpoints_resume_state(run):
 
 def test_prune_twice_removes_nothing_more(run):
     _results, state = run
-    retention.prune_visits(state, resume_states_kept=2)
-    assert retention.prune_visits(state, resume_states_kept=2) == []
+    retention.prune_visits(state, resume_states_kept=2, pinned_steps=[])
+    assert retention.prune_visits(state, resume_states_kept=2, pinned_steps=[]) == []
+
+
+def test_prune_keeps_resume_state_at_pinned_steps(run):
+    results, state = run
+    retention.prune_visits(state, resume_states_kept=1, pinned_steps=[3])
+    pinned = results / "run-visit-001/update/checkpoint-3"
+    assert {p.name for p in pinned.iterdir()} == set(RESUME_FILES + KEPT_FILES)
+    unpinned = results / "run-visit-003/update/checkpoint-4"
+    assert sorted(p.name for p in unpinned.iterdir()) == sorted(KEPT_FILES)
+
+
+@pytest.mark.parametrize("pinned", [[0], [-1], [True], [1.5], "25"])
+def test_prune_rejects_pinned_steps_that_are_not_positive_integers(run, pinned):
+    _results, state = run
+    with pytest.raises(ValueError, match="resume_steps_pinned"):
+        retention.prune_visits(state, resume_states_kept=2, pinned_steps=pinned)
 
 
 @pytest.mark.parametrize("kept", [0, -1, True, 1.5])
 def test_prune_rejects_a_policy_that_could_drop_the_current_resume_state(run, kept):
     _results, state = run
     with pytest.raises(ValueError, match="resume_states_kept"):
-        retention.prune_visits(state, resume_states_kept=kept)
+        retention.prune_visits(state, resume_states_kept=kept, pinned_steps=[])
 
 
 def test_release_merge_keeps_its_manifest_as_the_receipt_and_deletes_the_weights(tmp_path):
