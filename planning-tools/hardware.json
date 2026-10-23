@@ -1,0 +1,10 @@
+{
+  "_about": "GPU types for estimates: usable memory per GPU (GiB), HBM bandwidth (TB/s) and dense BF16 tensor throughput (TFLOPS) from vendor specifications; host_ram_tb is typical per 8-GPU node. node_gpus 2 marks this lab's workstation.",
+  "gpus": {
+    "A6000": {"gib": 47.4, "hbm_tbs": 0.768, "bf16_tflops": 155, "node_gpus": 2, "host_ram_tb": 0.25, "interconnect": "PCIe Gen3, no NVLink"},
+    "H100": {"gib": 79.0, "hbm_tbs": 3.35, "bf16_tflops": 989, "node_gpus": 8, "host_ram_tb": 2.0, "interconnect": "NVLink 900 GB/s; InfiniBand across nodes"},
+    "H200": {"gib": 139.0, "hbm_tbs": 4.8, "bf16_tflops": 989, "node_gpus": 8, "host_ram_tb": 2.0, "interconnect": "NVLink 900 GB/s; InfiniBand across nodes"},
+    "B200": {"gib": 178.0, "hbm_tbs": 8.0, "bf16_tflops": 2250, "node_gpus": 8, "host_ram_tb": 4.0, "interconnect": "NVLink 1.8 TB/s; InfiniBand across nodes"},
+    "B300": {"gib": 268.0, "hbm_tbs": 8.0, "bf16_tflops": 2250, "node_gpus": 8, "host_ram_tb": 4.0, "interconnect": "NVLink 1.8 TB/s; InfiniBand across nodes"}
+  }
+}

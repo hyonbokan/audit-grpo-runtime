@@ -24,6 +24,10 @@ change, not a quiet exception.
   paths, audited project results, judge output and model output stay in `private/`,
   `runs/` or `results/`, which are git-ignored. Public files refer to `private/` without naming
   the notes inside it.
+- Designs, methods, measurements of hardware and reusable tools go in git (`docs/`,
+  `planning-tools/`, `diagnostic-tools/`). `private/` is for the owner's own notes, drafts,
+  company reports and experiment evidence; nothing a future experiment needs to read lives
+  only there.
 - Before committing, check `git status --ignored` and search the diff for tokens, hostnames,
   `/home/` paths and private repository names. Add any new kind of sensitive output to
   `.gitignore` in the same change.
@@ -38,6 +42,9 @@ One document per purpose. Link to the owner instead of repeating it.
 | `AGENTS.md` | These rules |
 | `HOST_SETUP.md` | Preparing a new host: requirements, restore, images, fit checks |
 | `training-code/README.md` | Code layout, how to test, launch and resume |
+| `docs/training-design.md` | The training design: reward, effort and length, learning rate, schedule, acceptance, budget rules |
+| `docs/compute-planning.md` | GPU and host memory, what multiple GPUs buy, measured fits, hardware tiers for larger models |
+| `planning-tools/README.md` | The compute estimator: usage, registries, calibration |
 | `archive/README.md` | What finished-experiment code was and why it left |
 | `private/README.md` | Which private note owns state, conclusions, history and evidence links |
 
@@ -48,8 +55,8 @@ One document per purpose. Link to the owner instead of repeating it.
 
 ## Where code lives
 
-- Maintained code lives in `training-code/` only. `diagnostic-tools/` and `backup-tools/`
-  are standalone utilities; `images/` holds the image build recipe and locks; `archive/`
+- Maintained code lives in `training-code/` only. `diagnostic-tools/`, `backup-tools/` and
+  `planning-tools/` are standalone utilities; `images/` holds the image build recipe and locks; `archive/`
   is read-only history. Never import from `archive/`.
 - One implementation per behavior. Before writing a function, search for an existing one
   and extend its owner module; never copy it. Run-specific values go in

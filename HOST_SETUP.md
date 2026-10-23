@@ -125,7 +125,7 @@ complete receipts and skips grading when `grading/rewards.json` exists.
 1. Pick a visit whose starting checkpoint has full resume state (`optimizer.pt`,
    `scheduler.pt`, `rng_state.pth`).
 2. Register a fit-only schedule in `schedules.json` with this host's `update_placement`,
-   `tensor_parallel_size` and `offload_layers`; run `provenance.py`.
+   `tensor_parallel_size`, `offload_layers` and `tiled_mlp`; run `provenance.py`.
 3. If the images were rebuilt, copy the run's `source-plan.json` to `runs/<fit>/` and update
    only the `package_versions` that differ (e.g. torch `2.13.0+cu129`), noting why in
    `change_record`. Never edit the original.
@@ -135,6 +135,15 @@ complete receipts and skips grading when `grading/rewards.json` exists.
    `grading/` and `SOURCE_SHA256SUMS` in, then start
    `setsid nohup bash training-code/launch-cycle.sh <run> <run>/config.json --resume &`.
    Keep monitors outside the run directory: `--resume` archives its `*.log`/`*.txt`.
+
+**Long-sequence fit (no judge).** To find how long a sequence the update fits, seed a cycle with
+recorded draws cut to a target length (`diagnostic-tools/long_fit_inputs.py`; see its README):
+`build` writes `runs/<fit-run>/config.json` and stages rollout and synthetic grades beside it, then
+run `cycle_contract prepare` as in step 5, `long_fit_inputs.py seed --run runs/<fit-run>`, and
+`launch-cycle.sh --resume`. Fit-run directories must sit directly under `runs/` (containers see
+`/results/<name>`). Read `peak_allocated_gib_by_device` from `update/receipt.json`; nvidia-smi shows
+reserved memory and cannot show what streaming saves. Results and the A6000 limits:
+[docs/compute-planning.md](docs/compute-planning.md).
 
 **Done when** `cycle-result.json` approves all 14 conditions. vLLM's copy of the new adapter is
 verified by the next rollout; a fit replay checks it by starting a rollout from the new checkpoint.

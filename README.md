@@ -107,10 +107,12 @@ frameworks when distributed execution and rollout scheduling justify the migrati
 
 | Path | Contents |
 |---|---|
-| `private/` | Operational state and experiment records (not in git). Start with `private/README.md`. |
+| `private/` | The owner's notes, drafts, company reports, operational state and experiment records (not in git). Start with `private/README.md`. |
 | `training-code/` | The maintained code: launchers, controller, native update, judge, evaluation. See its [README](training-code/README.md). |
 | `images/` | Dockerfile, locks and build script for the pinned runtime images. See [HOST_SETUP.md](HOST_SETUP.md). |
-| `diagnostic-tools/`, `backup-tools/` | Standalone utilities: checkpoint merge and comparison, checkpoint backup. `merge_checkpoint.py` is called by `launch-training.sh`. |
+| `docs/` | The training design and compute planning (memory, multiple GPUs, hardware tiers for larger models). |
+| `diagnostic-tools/`, `backup-tools/` | Standalone utilities: checkpoint merge and comparison, long-sequence fit inputs, checkpoint backup. `merge_checkpoint.py` is called by `launch-training.sh`. |
+| `planning-tools/` | Compute estimator for memory, time and hardware tiers of candidate models. See its [README](planning-tools/README.md). |
 | `archive/` | Finished-experiment code and the original extraction provenance. Read-only. |
 | `results/` | Published results only: `README.md` (the results table) and one `<model>/results.json` per evaluated model, written by `training-code/publish-results.sh` (not in git). |
 | `runs/` | Every run's configs, receipts, grades, model output and reports, plus the inputs runs read (benchmark assets, corpus, checkpoints): dated evidence, mounted as `/results` in containers (not in git). |

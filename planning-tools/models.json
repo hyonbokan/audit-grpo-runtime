@@ -1,0 +1,53 @@
+{
+  "_about": "Candidate policy models. total_b/active_b from the model card or Artificial Analysis; shape fields from model-configs/<config>; kv_kib_per_token = per-token cache over the layers that keep one (bf16), sliding-window and linear-attention layers excluded. Checked 2026-10-23.",
+  "models": {
+    "Qwen3.8-27B": {
+      "repo": "Qwen/Qwen3.8-27B", "config": "Qwen3.8-27B.config.json", "licence": "see model card",
+      "total_b": 27, "active_b": 27, "hidden": 5120, "layers": 64, "experts": 0, "topk": 0, "moe_intermediate": 0,
+      "kv_kib_per_token": 64, "kv_note": "16 full-attention layers x 4 KV heads x 256 x (k, v)",
+      "aa_index": 34, "size_source": "measured BF16 weights 50.1 GiB"
+    },
+    "GLM-4.7-Flash": {
+      "repo": "zai-org/GLM-4.7-Flash", "config": "GLM-4.7-Flash.config.json", "licence": "MIT",
+      "total_b": 30, "active_b": 3, "hidden": 2048, "layers": 47, "experts": 64, "topk": 4, "moe_intermediate": 1536,
+      "kv_kib_per_token": 53, "kv_note": "47 MLA layers x (512 + 64)",
+      "aa_index": null, "size_source": "model card: 30B-A3B"
+    },
+    "GLM-5.3-Flash": {
+      "repo": "zai-org/GLM-5.3-Flash-BF16", "config": "GLM-5.3-Flash-BF16.config.json", "licence": "MIT",
+      "total_b": 320, "active_b": 18, "hidden": 4096, "layers": 45, "experts": 288, "topk": 8, "moe_intermediate": 2048,
+      "kv_kib_per_token": 11, "kv_note": "11 sparse-attention (DSA) layers x 512; 34 linear-attention layers keep fixed state",
+      "aa_index": 42, "size_source": "model card 320B / 18B; BF16 repo 643 GB"
+    },
+    "GLM-5.3": {
+      "repo": "zai-org/GLM-5.3-BF16", "config": "GLM-5.3.config.json", "licence": "custom permissive (restricts only model-as-a-service businesses above $10B revenue)",
+      "total_b": 753, "active_b": 40, "hidden": 6144, "layers": 78, "experts": 256, "topk": 8, "moe_intermediate": 2048,
+      "kv_kib_per_token": 88, "kv_note": "78 MLA/DSA layers x (512 + 64)",
+      "aa_index": 45, "size_source": "Artificial Analysis 753B / 40B"
+    },
+    "DeepSeek-V4.1-Flash": {
+      "repo": "deepseek-ai/DeepSeek-V4.1-Flash-1017", "config": "DeepSeek-V4.1-Flash-1017.config.json", "licence": "MIT",
+      "total_b": 552, "active_b": 16, "hidden": 5120, "layers": 40, "experts": 384, "topk": 6, "moe_intermediate": 2304,
+      "kv_kib_per_token": 40, "kv_note": "upper bound: 40 layers x one 512-wide latent head; layer-wise compression makes it smaller",
+      "aa_index": 45, "size_source": "Artificial Analysis 552B / 16B"
+    },
+    "MiMo-V2.6-Pro": {
+      "repo": "XiaomiMiMo/MiMo-V2.6-Pro-RL", "config": "MiMo-V2.6-Pro-RL.config.json", "licence": "MIT",
+      "total_b": 1020, "active_b": 42, "hidden": 6144, "layers": 70, "experts": 384, "topk": 8, "moe_intermediate": 2048,
+      "kv_kib_per_token": 50, "kv_note": "10 full-attention layers x 8 KV heads x (192 + 128); 60 sliding-window layers (128 tokens)",
+      "aa_index": 46, "size_source": "model card 1.02T / 42B"
+    },
+    "Step-5-Preview": {
+      "repo": "stepfun-ai/Step-5-Preview-BF16", "config": "Step-5-Preview-BF16.config.json", "licence": "see model card",
+      "total_b": 600, "active_b": 27, "hidden": 4096, "layers": 92, "experts": 352, "topk": 8, "moe_intermediate": 1536,
+      "kv_kib_per_token": 69, "kv_note": "23 full-attention layers x 4 KV groups x 192 x (k, v); 72 sliding-window layers (512 tokens)",
+      "aa_index": 44, "size_source": "model card 600B / 27B"
+    },
+    "Kimi-K3": {
+      "repo": "moonshotai/Kimi-K3", "config": "Kimi-K3.config.json", "licence": "see model card",
+      "total_b": 2800, "active_b": 104, "hidden": 7168, "layers": 93, "experts": 896, "topk": 16, "moe_intermediate": 3072,
+      "kv_kib_per_token": 27, "kv_note": "24 MLA layers x (512 + 64); 69 KDA linear-attention layers keep fixed state",
+      "aa_index": 44, "size_source": "Artificial Analysis 2.8T / 104B"
+    }
+  }
+}
