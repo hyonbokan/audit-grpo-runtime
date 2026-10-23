@@ -56,6 +56,7 @@
     "hf_backup.py": 4,
     "inference/adapter_compat.py": 2,
     "inference/benchmark_evaluation.py": 1,
+    "inference/length_probe.py": 1,
     "inference/rollout.py": 3
   }
 }

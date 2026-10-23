@@ -170,7 +170,10 @@ Items 1–5 were done on 2026-10-23 (CPU tests only; no GPU or paid call has run
    report. Published F1 uses each known vulnerability once across draws, as the published
    table does. A base draw is cut by keeping its first findings; a match counts when its
    matched finding lies inside the cut.
-6. GPU, no judge: medium length probe (rollout only) for the cap and row filter.
+6. GPU, no judge: medium length probe (rollout only) for the cap and row filter
+   (`inference/length_probe.py`: the base at medium effort, four draws on training rows spread
+   over the prompt-length order, generation capped at 96k tokens including the prompt; it reports
+   completion percentiles, the draws each total cap would cut and the rows each cap keeps).
 7. GPU + judge: frozen medium base run (~5 h, ~$4); learning-rate probe (~$1).
 8. Segment 1 schedule entry.
 

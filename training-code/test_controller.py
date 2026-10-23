@@ -144,7 +144,13 @@ def test_saved_schedule_retains_remaining_updates_and_advances_the_cursor():
 
 
 @pytest.mark.parametrize(
-    "launcher", ["launch-cycle.sh", "launch-evaluation.sh", "launch-benchmark-suite.sh"]
+    "launcher",
+    [
+        "launch-cycle.sh",
+        "launch-evaluation.sh",
+        "launch-benchmark-suite.sh",
+        "launch-length-probe.sh",
+    ],
 )
 def test_launcher_verifies_fresh_results_on_ephemeral_disk_before_any_worker(tmp_path, launcher):
     code = tmp_path / "runtime/training-code"

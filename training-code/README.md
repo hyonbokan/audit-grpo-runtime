@@ -31,7 +31,7 @@ in `../private/` (not in git; start with its README).
 | `free_text_corpus.py` | Derives the free-text corpus from that one: the evaluation's prompt over the same rows, evaluation-shaped truth, re-tokenized requests and the frozen judge template (`--source --out --model-path --benchmark-assets`). Training reads this corpus (`dataset_host`, `dataset_workspace`). |
 | `private/` | Not in git: the frozen policy rendering (production audit prompt and answer schema) that the corpus builder and reward worker hash. Copy it in before a run; both fail loudly without it. |
 | `grpo/` | Native update (`corrected_update`, `corrected_loss`, `native_policy`), judge (`judge_worker`, `reward`, `budget`, `judge_cache`). |
-| `inference/` | vLLM rollout, adapter transfer checks, evaluation and benchmark grading; `volume_matched.py` and the suite's acceptance block (volume-matched recall, published F1, graded draws). |
+| `inference/` | vLLM rollout, adapter transfer checks, evaluation and benchmark grading; `length_probe.py` (medium-effort completion lengths of the base on training rows, generation only; `launch-length-probe.sh RUN CONFIG`); `volume_matched.py` and the suite's acceptance block (volume-matched recall, published F1, graded draws). |
 | `runtime_io.py` | JSON files, hashes, deadlines and result directories. |
 | `provenance.py` | Writes `SOURCE_SHA256SUMS`, which every launcher verifies. |
 
