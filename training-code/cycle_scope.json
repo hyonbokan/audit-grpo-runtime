@@ -6,7 +6,6 @@
   "rollout_adapter_precision": "bfloat16",
   "sampler_backend": "vllm_upstream",
   "optimizer_kind": "adamw_8bit",
-  "learning_rate": 5e-06,
   "epsilon": 0.2,
   "correction_max": 3.0,
   "max_grad_norm": 1.0,

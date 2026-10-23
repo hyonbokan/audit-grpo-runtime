@@ -39,8 +39,10 @@ Copy `host.env.example` to `host.env` (git-ignored) and set:
 - `AUDIT_GRPO_CACHE`: the absolute cache directory.
 - `AUDIT_GRPO_PEER_ACCESS`: `enabled`, or `disabled` when `preflight.sh` finds GPU peer copies
   corrupt (see Known problems).
+- `AUDIT_GRPO_HF_REPO`: a private Hugging Face model repository for run backups
+  (`launch-segment.sh` refuses to start a run without it).
 
-Launchers exit 2 without them. Image tags (`audit-grpo-{deps,vllm}:cu129-v1`) are in code; a
+Launchers exit 2 without the first two. Image tags (`audit-grpo-{deps,vllm}:cu129-v1`) are in code; a
 new tag must be changed there.
 
 **Done when** `preflight.sh` passes the host.env lines and `git status` shows no data.

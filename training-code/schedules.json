@@ -26,6 +26,7 @@
       "judge_operation_cap_usd": 100,
       "gpu_memory_utilization": 0.9,
       "policy_reasoning_effort": "medium",
+      "learning_rate": 5e-06,
       "offload_layers": 32,
       "prefetch_depth": 1,
       "tiled_mlp": false,
@@ -136,6 +137,35 @@
         "tiled_mlp": true,
         "update_placement": {"gpus": [0, 1], "embedding": "gpu", "max_memory_gib": 30},
         "tensor_parallel_size": 2
+      }
+    },
+    "free-text-seg1-20261023": {
+      "training_cutoff": "2026-10-29T12:00:00+00:00",
+      "final_deadline": "2026-10-30T06:00:00+00:00",
+      "maximum_context": 65536,
+      "judge_cap_usd": 120,
+      "launch": {
+        "campaign": "free-text-campaign-20261023",
+        "corpus": "free-text-corpus-20261023",
+        "corpus_manifest_sha256": "abcce81a92c0e72ba551a7caefa471673dfbb5630222c2c7d07ca50b35e8f944",
+        "benchmark_assets": "benchmark-solidity1-full-context-20261009/assets",
+        "benchmark_manifest_sha256": "7fdeed5e42d495cf30ec91799530c6069423a2aa83235c7275c8746309b5a25a",
+        "prior_analysis": "a6000-fit-20261021/prior-analysis-reconstructed.json",
+        "start": {"template": "medium-day-20261010-visit-012/update/checkpoint-13", "seed": 3407}
+      },
+      "storage": {"resume_steps_pinned": [25, 50]},
+      "training": {
+        "initial_step": 0,
+        "maximum_step": 25,
+        "maximum_groups": 98,
+        "judge_seconds_limit": 3600,
+        "judge_operation_cap_usd": 40,
+        "learning_rate": 2e-05,
+        "offload_layers": 64,
+        "tiled_mlp": true,
+        "update_placement": {"gpus": [0, 1], "embedding": "gpu", "max_memory_gib": 30},
+        "tensor_parallel_size": 2,
+        "reward": {"version": "free-text-recall-volume-v1", "volume_allowance": 20}
       }
     }
   }

@@ -11,33 +11,14 @@ import hf_backup
 import initial_checkpoint
 from grpo import native_policy
 from runtime_io import sha256_file
+from testing.checkpoints import A, B, trained_checkpoint
 
 LEARNING_RATE = 2e-5
-A, B = (
-    "base_model.model.layers.0.q_proj.lora_A.weight",
-    "base_model.model.layers.0.q_proj.lora_B.weight",
-)
-CONFIG = {"r": 2, "lora_alpha": 4, "peft_type": "LORA"}
 
 
 @pytest.fixture
 def template(tmp_path):
-    root = tmp_path / "template"
-    root.mkdir()
-    tensors = {A: torch.full((2, 16), 0.5), B: torch.full((6, 2), 0.25)}
-    save_file(tensors, root / "adapter_model.safetensors")
-    (root / "adapter_config.json").write_text(json.dumps(CONFIG))
-    model = torch.nn.ParameterList(torch.nn.Parameter(t.clone()) for t in tensors.values())
-    optimizer = torch.optim.AdamW([{"params": list(model)}], lr=5e-6)
-    for parameter in model:
-        parameter.grad = torch.ones_like(parameter)
-    optimizer.step()
-    torch.save(optimizer.state_dict(), root / "optimizer.pt")
-    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda _step: 1.0)
-    scheduler.step()
-    torch.save(scheduler.state_dict(), root / "scheduler.pt")
-    (root / "trainer_state.json").write_text('{"global_step": 14}')
-    return root
+    return trained_checkpoint(tmp_path / "template")
 
 
 def create(template, tmp_path, seed=7, name="initial"):
@@ -74,7 +55,7 @@ def test_the_optimizer_is_empty_with_the_templates_groups_and_the_scheduler_is_a
     assert saved["state"] == {} and saved["param_groups"] == original["param_groups"]
     scheduler = torch.load(tmp_path / "initial/scheduler.pt", weights_only=True)
     assert scheduler["last_epoch"] == 0 and scheduler["_step_count"] == 1
-    assert scheduler["base_lrs"] == scheduler["_last_lr"] == [LEARNING_RATE]
+    assert scheduler["base_lrs"] == scheduler["_last_lr"] == [LEARNING_RATE] * 2
     assert json.loads((tmp_path / "initial/trainer_state.json").read_text()) == {"global_step": 0}
     assert (tmp_path / "initial/adapter_config.json").read_bytes() == (
         template / "adapter_config.json"

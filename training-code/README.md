@@ -12,6 +12,7 @@ in `../private/` (not in git; start with its README).
 
 | Path | What it does |
 |---|---|
+| `launch-segment.sh`, `training_config.py` | Starts a registered schedule: writes the run config, source plan, ledgers and step-0 adapter from `schedules.json` and the host settings, then runs `launch-training.sh`. |
 | `launch-training.sh` | Multi-visit run: prepare, one cycle per visit, backups, merge, final evaluation. |
 | `launch-cycle.sh` | One cycle: rollout → grading → update → acceptance. |
 | `launch-evaluation.sh` | One free-text evaluation of one project (e.g. a frozen base run). |
@@ -60,27 +61,30 @@ shared config builders are in `testing/` (excluded from `SOURCE_SHA256SUMS`).
 ## Start a training run
 
 Each host needs `../host.env` (git-ignored; copy `../host.env.example`) naming its cache
-directory. The launchers exit 2 without it.
+directory and, to start a run, its private backup repository. The launchers exit 2 without it.
 
-1. Add the schedule to `schedules.json` (`training_cutoff`, `final_deadline`, `training`
-   steps and group limits, `training.reward.volume_allowance`, `storage.resume_steps_pinned`;
-   anything unset takes `defaults`). An unregistered `schedule_id` is rejected, and the reward
+1. Register the schedule in `schedules.json`: `training_cutoff`, `final_deadline`,
+   `maximum_context` (the generation cap, prompt included), `judge_cap_usd` (the campaign's
+   training ledger), `training` (steps, group limit, `learning_rate`,
+   `reward.volume_allowance`, placement), `storage.resume_steps_pinned`, and `launch`, the
+   run's inputs as paths under `runs/`:
+   - `campaign`: the directory of the judge ledgers every segment of the campaign shares;
+   - `corpus`, `corpus_manifest_sha256`: the derived free-text corpus;
+   - `benchmark_assets`, `benchmark_manifest_sha256`: `prepare` refuses a training row that
+     shares a file with an evaluation project;
+   - `prior_analysis`: the vLLM/native log-prob drift measurement every cycle reports;
+   - `start`: `{"template": CHECKPOINT, "seed": N}` makes a zero-initialised step-0 adapter
+     (`initial_checkpoint.py`) shaped like an earlier checkpoint of the same model;
+     `{"checkpoint": CHECKPOINT}` continues from an accepted checkpoint.
+
+   Anything unset takes `defaults`. An unregistered `schedule_id` is rejected, and the reward
    fails until `volume_allowance` is set.
-2. From a fresh run only: make the step-0 checkpoint (adapter equal to the base, empty optimizer)
-   from any earlier checkpoint of the same model, with the learning rate the first visit uses:
-   `python -m initial_checkpoint --template CHECKPOINT --out runs/start/checkpoint-0 --seed N
-   --learning-rate LR`. It prints the adapter hash.
-3. Write `runs/RUN/config.json` with that `schedule_id`, the starting checkpoint and
-   its adapter hash, the dataset paths (the derived free-text corpus), `benchmark_assets` and
-   `benchmark_manifest_sha256` (`prepare` refuses a training row that shares a file with an
-   evaluation project), `hf_repo` and `judge_env_file`.
-4. Freeze and launch:
-
-```bash
-python3 training-code/provenance.py
-cp training-code/SOURCE_SHA256SUMS runs/RUN/
-bash training-code/launch-training.sh runs/RUN runs/RUN/config.json
-```
+2. Start it: `bash training-code/launch-segment.sh SCHEDULE_ID`. It regenerates and verifies
+   `SOURCE_SHA256SUMS`, writes `runs/SCHEDULE_ID/` with `training_config.py` (config, source
+   plan, prior analysis; the step-0 adapter in `runs/SCHEDULE_ID-start/`; the campaign ledgers
+   once), copies the source identity in and starts `launch-training.sh` detached. The run id is
+   the schedule id. If it stops before training begins, delete `runs/SCHEDULE_ID/` and start
+   again: the step-0 adapter and the ledgers are reused.
 
 Do not edit `training-code/` while a run is live: every visit re-verifies the hashes.
 

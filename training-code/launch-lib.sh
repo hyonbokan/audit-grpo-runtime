@@ -4,6 +4,8 @@ CPU_IMAGE=audit-grpo-deps:cu129-v1
 # Long-running judge/backup container that holds the credentials; code is copied in per phase.
 LIVE_CONTAINER=audit-grpo-live
 LIVE_CODE=/opt/audit-grpo-training-code
+# The live container mounts the credentials here; run configs name it as judge_env_file.
+JUDGE_ENV=/opt/audit-grpo-secrets/judge.env
 # Frozen backend dependencies, configs and data mounted as /workspace.
 FROZEN_WORKSPACE="$runtime_root/workspace"
 # The cache is an absolute host path, so it lives in the git-ignored host.env.

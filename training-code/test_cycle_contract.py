@@ -363,3 +363,30 @@ def test_low_prompt_cannot_be_relabelled_as_an_xhigh_training_request():
     request["full_completion_ceiling"] = 16384
     with pytest.raises(ValueError, match="ceiling"):
         cycle_contract.validate_policy_profile(c, request, plan)
+
+
+# --- Learning rate
+
+
+@pytest.fixture
+def faster_schedule(tmp_path, monkeypatch):
+    """The medium-day schedule, registered again with its own learning rate."""
+    registry = json.loads(schedules.REGISTRY.read_text())
+    reviewed = registry["schedules"]["medium-day-20261010"]
+    training = dict(reviewed["training"], learning_rate=2e-5)
+    registry["schedules"]["faster"] = dict(reviewed, training=training)
+    path = tmp_path / "schedules.json"
+    path.write_text(json.dumps(registry))
+    monkeypatch.setattr(schedules, "REGISTRY", path)
+    return schedule_cycle("faster")
+
+
+def test_a_schedule_sets_the_learning_rate_its_cycles_must_use(faster_schedule):
+    assert faster_schedule["learning_rate"] == 2e-5
+    cycle_contract.validate_config(faster_schedule)
+    with pytest.raises(ValueError, match="learning_rate=5e-06"):
+        cycle_contract.validate_config({**faster_schedule, "learning_rate": 5e-6})
+
+
+def test_schedules_without_their_own_learning_rate_keep_the_default():
+    assert schedules.schedule("medium-day-20261010")["training"]["learning_rate"] == 5e-6

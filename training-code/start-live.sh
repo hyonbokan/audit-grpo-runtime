@@ -7,8 +7,6 @@ set -euo pipefail
 code_root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 runtime_root=$(dirname -- "$code_root")
 credentials="$runtime_root/.env"
-# Run configs name this path as judge_env_file.
-JUDGE_ENV=/opt/audit-grpo-secrets/judge.env
 [[ -f "$credentials" ]] || {
   echo "Missing $credentials: copy .env.example, fill it and chmod 600 it" >&2
   exit 2

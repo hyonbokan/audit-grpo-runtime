@@ -45,9 +45,9 @@ def create(template: Path, out: Path, seed: int, learning_rate: float) -> dict[s
     for name in COPIED_FILES:
         (out / name).write_bytes((template / name).read_bytes())
     torch.save({**optimizer, "state": {}}, out / "optimizer.pt")
-    scheduler.update(
-        last_epoch=0, _step_count=1, base_lrs=[learning_rate], _last_lr=[learning_rate]
-    )
+    # The scheduler keeps one rate per optimizer group, empty groups included.
+    rates = [learning_rate] * len(optimizer["param_groups"])
+    scheduler.update(last_epoch=0, _step_count=1, base_lrs=rates, _last_lr=list(rates))
     torch.save(scheduler, out / "scheduler.pt")
     torch.save(rng_state(seed), out / "rng_state.pth")
     save_json(out / "trainer_state.json", {"global_step": 0})

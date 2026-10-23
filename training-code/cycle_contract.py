@@ -103,6 +103,7 @@ def validate_config(config: dict[str, Any]) -> None:
         offload_layers=limits["offload_layers"],
         prefetch_depth=limits["prefetch_depth"],
         tiled_mlp=limits["tiled_mlp"],
+        learning_rate=limits["learning_rate"],
         update_placement=limits.get("update_placement", required["update_placement"]),
         absolute_deadline=reviewed["training_cutoff"],
     )

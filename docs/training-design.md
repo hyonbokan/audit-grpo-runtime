@@ -174,8 +174,10 @@ Items 1–5 were done on 2026-10-23 (CPU tests only; no GPU or paid call has run
    (`inference/length_probe.py`: the base at medium effort, four draws on training rows spread
    over the prompt-length order, generation capped at 96k tokens including the prompt; it reports
    completion percentiles, the draws each total cap would cut and the rows each cap keeps).
-7. GPU + judge: frozen medium base run (~5 h, ~$4); learning-rate probe (~$1).
-8. Segment 1 schedule entry.
+7. GPU + judge: frozen medium base run (~5 h, ~$4); learning-rate probe (~$1). Both skipped for
+   segment 1 (decision log, 2026-10-23).
+8. Segment 1 schedule entry: `free-text-seg1-20261023`, started with
+   `training-code/launch-segment.sh`.
 
 ## Decision log
 
@@ -188,5 +190,13 @@ Items 1–5 were done on 2026-10-23 (CPU tests only; no GPU or paid call has run
 - 2026-10-23: segments "and every 50" past step 100 dropped; the budget counted groups while the
   schedule counts updates (≈ 2 groups per update), so step 200 would have needed ≈ 400 groups and
   reached the $150 cap. First campaign ends at step 100.
+- 2026-10-23: the length probe set the generation cap to 65,536 tokens including the prompt,
+  with no row filter: every training row leaves room for the longest probed completion.
+- 2026-10-23: segment 1 starts without the frozen medium base run and the learning-rate probe,
+  to see how training behaves first. N0 = 20, where per-draw F1 peaks on the frozen xhigh base
+  draws (O1 used the xhigh base, not a medium one). Learning rate 2e-5, the §4 prior, held
+  constant: the 5-update warmup is not implemented. The step-25 evaluation runs the trained arm
+  at xhigh against the frozen xhigh base, the comparison rejected on 2026-10-22 as a transfer
+  test; it is recorded as such, and the medium comparison §6 asks for still needs a medium base.
 - 2026-10-22: the long-sequence fit settled the effort (medium). An interim reading that weight
   streaming freed nothing on the 2-GPU split came from nvidia-smi and was wrong.

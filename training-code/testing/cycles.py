@@ -30,6 +30,7 @@ def schedule_cycle(schedule_id: str, initial_step: int | None = None) -> dict:
         offload_layers=training["offload_layers"],
         prefetch_depth=training["prefetch_depth"],
         tiled_mlp=training["tiled_mlp"],
+        learning_rate=training["learning_rate"],
     )
     if "update_placement" in training:
         config["update_placement"] = training["update_placement"]
