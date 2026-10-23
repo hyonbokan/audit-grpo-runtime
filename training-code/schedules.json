@@ -17,7 +17,8 @@
       "gpu_memory_utilization": 0.9,
       "policy_reasoning_effort": "medium",
       "offload_layers": 32,
-      "prefetch_depth": 1
+      "prefetch_depth": 1,
+      "tiled_mlp": false
     }
   },
   "schedules": {
@@ -69,6 +70,59 @@
         "maximum_groups": 1,
         "seconds_limit": 21600,
         "offload_layers": 0,
+        "update_placement": {"gpus": [0, 1], "embedding": "gpu", "max_memory_gib": 30},
+        "tensor_parallel_size": 2
+      }
+    },
+    "a6000-long-fit-20261022": {
+      "training_cutoff": "2026-10-23T12:00:00+00:00",
+      "final_deadline": "2026-10-23T14:00:00+00:00",
+      "training": {
+        "initial_step": 13,
+        "maximum_step": 33,
+        "maximum_groups": 1,
+        "seconds_limit": 14400,
+        "offload_layers": 0,
+        "update_placement": {"gpus": [0, 1], "embedding": "gpu", "max_memory_gib": 30},
+        "tensor_parallel_size": 2
+      }
+    },
+    "a6000-long-fit-offload-20261022": {
+      "training_cutoff": "2026-10-23T12:00:00+00:00",
+      "final_deadline": "2026-10-23T14:00:00+00:00",
+      "training": {
+        "initial_step": 13,
+        "maximum_step": 33,
+        "maximum_groups": 1,
+        "seconds_limit": 14400,
+        "offload_layers": 32,
+        "update_placement": {"gpus": [0, 1], "embedding": "gpu", "max_memory_gib": 30},
+        "tensor_parallel_size": 2
+      }
+    },
+    "a6000-long-fit-offload64-20261022": {
+      "training_cutoff": "2026-10-23T12:00:00+00:00",
+      "final_deadline": "2026-10-23T14:00:00+00:00",
+      "training": {
+        "initial_step": 13,
+        "maximum_step": 33,
+        "maximum_groups": 1,
+        "seconds_limit": 14400,
+        "offload_layers": 64,
+        "update_placement": {"gpus": [0, 1], "embedding": "gpu", "max_memory_gib": 30},
+        "tensor_parallel_size": 2
+      }
+    },
+    "a6000-long-fit-tiled-20261022": {
+      "training_cutoff": "2026-10-23T12:00:00+00:00",
+      "final_deadline": "2026-10-23T14:00:00+00:00",
+      "training": {
+        "initial_step": 13,
+        "maximum_step": 33,
+        "maximum_groups": 1,
+        "seconds_limit": 14400,
+        "offload_layers": 64,
+        "tiled_mlp": true,
         "update_placement": {"gpus": [0, 1], "embedding": "gpu", "max_memory_gib": 30},
         "tensor_parallel_size": 2
       }

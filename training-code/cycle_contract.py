@@ -33,6 +33,7 @@ PROTECTED_KEYS = (
     "max_grad_norm",
     "offload_layers",
     "prefetch_depth",
+    "tiled_mlp",
     "update_placement",
     "seed",
     "sampling",
@@ -100,6 +101,7 @@ def validate_config(config: dict[str, Any]) -> None:
         target_step=target,
         offload_layers=limits["offload_layers"],
         prefetch_depth=limits["prefetch_depth"],
+        tiled_mlp=limits["tiled_mlp"],
         update_placement=limits.get("update_placement", required["update_placement"]),
         absolute_deadline=reviewed["training_cutoff"],
     )

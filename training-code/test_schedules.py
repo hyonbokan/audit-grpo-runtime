@@ -67,6 +67,7 @@ def test_contract_accepts_each_single_step_up_to_the_cap_and_nothing_beyond(sche
         {"seconds_limit": training["seconds_limit"] + 1},
         {"absolute_deadline": "2030-01-01T00:00:00+00:00"},
         {"offload_layers": training["offload_layers"] + 1},
+        {"tiled_mlp": not training["tiled_mlp"]},
     ):
         with pytest.raises(ValueError):
             validate_config(dict(schedule_cycle(schedule_id), **changes))

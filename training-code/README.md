@@ -101,7 +101,9 @@ holds every cycle to it and `launch-cycle.sh` exposes only those GPUs to each co
   split such as `{"gpus": [0, 1], "embedding": "gpu", "max_memory_gib": 44}` placed by
   Unsloth's planner (`grpo/placement.py`). A split keeps the embedding on GPU because Unsloth
   declines embedding offload for a dispatched model. `offload_layers` still streams that many
-  frozen layers from host RAM (0: none). The update receipt records `layer_devices` and the
+  frozen layers from host RAM (0: none), on a split too, keeping a small prefetch slot pool on
+  each GPU. `tiled_mlp` (default false) recomputes each MLP in sequence tiles, bounding the
+  largest per-layer activation on long sequences. The update receipt records `layer_devices` and the
   peak memory of every GPU. The planner keeps the final norm on the first GPU and may put the
   head on the last; the update copies the final hidden states to the head's GPU and records
   each such move in `final_hidden_transfers`.
