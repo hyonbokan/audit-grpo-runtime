@@ -144,3 +144,22 @@ def test_saved_checkpoint_contains_changed_adapter_and_resumable_step_two(tmp_pa
     assert {int(value["step"].item()) for value in saved["state"].values()} == {2}
     assert (destination / "rng_state.pth").is_file()
     assert (destination / "scheduler.pt").is_file()
+
+
+def test_a_fresh_eight_bit_optimizer_restores_empty_and_takes_its_first_step(tmp_path):
+    from bitsandbytes.optim import AdamW8bit
+
+    model = torch.nn.Linear(128, 64, bias=False)
+    optimizer = AdamW8bit([{"params": [model.weight]}], lr=5e-6)
+    saved = optimizer.state_dict()
+    assert saved["state"] == {}
+    torch.save(saved, tmp_path / "optimizer.pt")
+    (tmp_path / "trainer_state.json").write_text('{"global_step": 0}')
+    restored = native_policy.restore_optimizer(
+        model, tmp_path, learning_rate=2e-5, optimizer_kind="adamw_8bit"
+    )
+    assert restored.param_groups[0]["lr"] == 2e-5
+    model.weight.grad = torch.ones_like(model.weight)
+    restored.step()
+    assert int(restored.state[model.weight]["step"]) == 1
+    assert restored.state[model.weight]["state1"].dtype == torch.uint8

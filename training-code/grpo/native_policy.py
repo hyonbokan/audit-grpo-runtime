@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from grpo.placement import load_options
+from runtime_io import read_json
 
 
 def restore_optimizer(
@@ -44,7 +45,14 @@ def restore_optimizer(
     # The original SDK unwraps its own quantization state and preserves uint8
     # moments/maps. Validate after that public loader, before taking any update.
     optimizer.load_state_dict(saved)
-    for parameter in parameters:
+    if not saved["state"]:
+        # Only the step-0 checkpoint has no moments; they start at zero on the first update.
+        step = read_json(checkpoint / "trainer_state.json")["global_step"]
+        if step != 0:
+            raise ValueError(
+                f"Checkpoint at step {step} has no optimizer moments; not a fresh optimizer"
+            )
+    for parameter in parameters if saved["state"] else []:
         state = optimizer.state.get(parameter, {})
         if any(
             state.get(key) is None or state[key].shape != parameter.shape for key in moment_keys

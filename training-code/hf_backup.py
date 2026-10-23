@@ -85,7 +85,8 @@ def verify_resumable(checkpoint: Path, step: int, learning_rate: float) -> dict:
     if json.loads((checkpoint / "trainer_state.json").read_text())["global_step"] != step:
         raise ValueError("Recovery optimizer step differs")
     optimizer = torch.load(checkpoint / "optimizer.pt", map_location="cpu", weights_only=True)
-    if {int(v["step"]) for v in optimizer["state"].values()} != {step}:
+    # Only the step-0 checkpoint has an empty optimizer state.
+    if {int(v["step"]) for v in optimizer["state"].values()} != ({step} if step else set()):
         raise ValueError("Recovery optimizer counters differ")
     scheduler = torch.load(checkpoint / "scheduler.pt", map_location="cpu", weights_only=True)
     if any(lr != learning_rate for lr in scheduler["_last_lr"]):
