@@ -16,7 +16,7 @@ from adapter_mapping import prepare_adapter
 from cycle_contract import validate_config, validate_policy_profile, write_event
 from generation import capture_batch, validate_request, validate_shared_engine
 from grpo.samples import capture_sample
-from runtime_io import read_json, save_json
+from runtime_io import new_phase_dir, read_json, save_json
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -50,7 +50,7 @@ PHASES = {"rollout": phase_single, "evaluate": phase_single, "evaluate-suite": p
 
 def run_rollout(phase: str, config: dict[str, Any], out: Path) -> dict[str, Any]:
     arm = resolve_arm(phase, config)
-    out.mkdir(parents=True, exist_ok=False)
+    new_phase_dir(out)
     receipt = arm_receipt(arm)
     started = time.monotonic()
     write_event(out, "start", weight_version=arm["version"])
@@ -187,9 +187,13 @@ def load_engine(arm: dict[str, Any], out: Path, receipt: dict[str, Any]) -> tupl
         return engine, None, SamplingParams
     from vllm.lora.request import LoRARequest
 
-    adapter = LoRARequest(f"checkpoint-{step}-{digest[:12]}", step, str(mapped), load_inplace=True)
+    # vLLM refuses adapter id 0, which a fresh step-0 adapter would otherwise get.
+    adapter_id = step + 1
+    adapter = LoRARequest(
+        f"checkpoint-{step}-{digest[:12]}", adapter_id, str(mapped), load_inplace=True
+    )
     engine.collective_rpc("load_adapter", args=(msgspec.to_builtins(adapter),))
-    receipt["transfer"] = verify_active_adapter(engine, config, step, checkpoint, digest, out)
+    receipt["transfer"] = verify_active_adapter(engine, config, adapter_id, checkpoint, digest, out)
     write_event(
         out,
         "active_adapter_verified",
@@ -247,19 +251,21 @@ def save_arm(
 
 
 def verify_active_adapter(
-    engine: Any, config: dict[str, Any], step: int, checkpoint: Path, digest: str, out: Path
+    engine: Any, config: dict[str, Any], adapter_id: int, checkpoint: Path, digest: str, out: Path
 ) -> dict[str, Any]:
     """Every rank's active LoRA buffers equal the native adapter."""
     size = config["engine"].get("tensor_parallel_size", 1)  # vLLM's own default: one GPU.
     if size == 1:
-        reports = engine.collective_rpc("verify_adapter", args=(step, str(checkpoint), digest))
+        reports = engine.collective_rpc(
+            "verify_adapter", args=(adapter_id, str(checkpoint), digest)
+        )
         if len(reports) != 1:
             raise ValueError("Exactly one local worker receipt required")
         return reports[0]
     # Each rank writes its buffers here; they are deleted once verified.
     directory = out / "adapter-shards"
     try:
-        replies = engine.collective_rpc("adapter_shards", args=(step, str(directory)))
+        replies = engine.collective_rpc("adapter_shards", args=(adapter_id, str(directory)))
         return verify_tensor_parallel(replies, checkpoint, digest, size=size)
     finally:
         shutil.rmtree(directory, ignore_errors=True)

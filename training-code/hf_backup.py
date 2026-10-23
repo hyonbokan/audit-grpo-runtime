@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import tarfile
 from datetime import UTC, datetime
@@ -167,12 +168,25 @@ def remove_staging(bundle: Path) -> None:
     shutil.rmtree(bundle.parent / "hf-download-cache", ignore_errors=True)
 
 
+def load_env_file(path: Path, *, override: bool) -> None:
+    """KEY=VALUE lines into the environment; the image's GPU environment has no python-dotenv."""
+    for line in path.read_text().splitlines():
+        key, separator, value = line.strip().removeprefix("export ").partition("=")
+        key = key.strip()
+        if line.lstrip().startswith("#") or not separator or not key or " " in key:
+            continue
+        if override or key not in os.environ:
+            os.environ[key] = value.strip().strip("\"'")
+
+
 def upload_verified(bundle: Path, metadata: dict, config: dict, receipt_path: Path) -> dict:
-    from dotenv import load_dotenv
     from huggingface_hub import HfApi, hf_hub_download
 
-    load_dotenv(config["judge_env_file"], override=True)
-    load_dotenv(config.get("hf_env_file", "/workspace/code/backend/.env"), override=False)
+    load_env_file(Path(config["judge_env_file"]), override=True)
+    # Optional second source of the token; absent on hosts whose credentials file holds it.
+    backend_env = Path(config.get("hf_env_file", "/workspace/code/backend/.env"))
+    if backend_env.is_file():
+        load_env_file(backend_env, override=False)
     archive = bundle.with_suffix(".tar.gz")
     with tarfile.open(archive, "w:gz", compresslevel=1, dereference=True) as tar:
         tar.add(bundle, arcname="recovery")

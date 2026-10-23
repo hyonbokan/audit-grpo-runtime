@@ -20,7 +20,7 @@ from grpo.judge_cache import CachedJudge
 from grpo.judge_environment import judge_router_config
 from grpo.measurement import group_metrics
 from grpo.samples import write_new
-from runtime_io import read_json
+from runtime_io import new_phase_dir, read_json
 
 # One router slot per draw: the group's four draws are graded together.
 GRADING_CONCURRENCY = 4
@@ -62,7 +62,7 @@ async def run(args):
         model=JUDGE_MODEL,
     )
     samples = json.loads(args.samples.read_text())
-    args.out.mkdir(parents=True, exist_ok=False)
+    new_phase_dir(args.out)
     router = await RecordedJudgeRouter.create(router_config)
     router.event_dir = args.out / "events"
     try:

@@ -194,3 +194,20 @@ def test_staging_is_removed_after_a_verified_upload_but_metadata_is_kept(tmp_pat
     assert not (tmp_path / "visit-x.tar.gz").exists()
     assert not (tmp_path / "hf-download-cache").exists()
     assert (tmp_path / "visit-x.metadata.json").exists()
+
+
+def test_the_credentials_file_is_read_without_python_dotenv(tmp_path, monkeypatch):
+    env = tmp_path / "judge.env"
+    env.write_text(
+        '# gateway\nexport HF_TOKEN="hf-value"\nLITELLM_GATEWAY_URL=https://gw\n\nBROKEN LINE\n'
+        "SHARED='from-file'\n"
+    )
+    monkeypatch.setenv("SHARED", "from-process")
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.delenv("LITELLM_GATEWAY_URL", raising=False)
+    hf_backup.load_env_file(env, override=False)
+    assert hf_backup.os.environ["HF_TOKEN"] == "hf-value"
+    assert hf_backup.os.environ["LITELLM_GATEWAY_URL"] == "https://gw"
+    assert hf_backup.os.environ["SHARED"] == "from-process"
+    hf_backup.load_env_file(env, override=True)
+    assert hf_backup.os.environ["SHARED"] == "from-file"

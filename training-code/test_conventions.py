@@ -17,6 +17,8 @@ BASELINE = ROOT / "testing/conventions_baseline.json"
 FROZEN_BACKEND = Path("/workspace/code/backend")
 # Reviewed contract files; a new one needs a reason, not a copy of schedules.json.
 SCOPE_FILES = {"benchmark_scope.json", "cycle_scope.json"}
+# The Python environments images/Dockerfile builds into every image.
+IMAGE_ENVIRONMENTS = {"gpu", "judge"}
 # Patterns that belong in runtime_io.py; elsewhere they are duplicated helpers.
 DUPLICATED_HELPERS = {
     "read_json": r"json\.loads\([^\n]*read_text\(\)\)",
@@ -64,6 +66,15 @@ def test_launchers_fail_fast_and_verify_source_before_any_container(launcher):
     verify = next(i for i, line in enumerate(lines) if "sha256sum --check" in line)
     first_docker = next(i for i, line in enumerate(lines) if re.search(r"\bdocker\b", line))
     assert verify < first_docker
+
+
+def test_launchers_call_only_python_environments_the_images_build():
+    called = {
+        match
+        for path in ROOT.glob("*.sh")
+        for match in re.findall(r"/opt/pilot/(\w+)/bin/python", text(path))
+    }
+    assert called and called <= IMAGE_ENVIRONMENTS, called - IMAGE_ENVIRONMENTS
 
 
 def test_schedules_live_only_in_the_registry():

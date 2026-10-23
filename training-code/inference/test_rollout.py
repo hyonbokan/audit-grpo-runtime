@@ -118,6 +118,7 @@ def test_versioned_groups_capture_actual_sdk_tokens(tmp_path, monkeypatch, mode)
             if method == "load_adapter":
                 return [True]
             if method == "verify_adapter":
+                assert args[0] == step + 1
                 return [{"cast_transfer_verified": True, "source_tensor_count": 2}]
             raise ValueError(f"Unexpected worker RPC: {method}")
 
@@ -134,7 +135,7 @@ def test_versioned_groups_capture_actual_sdk_tokens(tmp_path, monkeypatch, mode)
             elif mode == "merged":
                 assert not request_options
             else:
-                assert request_options["lora_request"].lora_int_id == step
+                assert request_options["lora_request"].lora_int_id == step + 1
             return [response]
 
         def get_tokenizer(self):

@@ -85,7 +85,7 @@ backup() {
   sync_live_code || return $?
   timeout --foreground -k 30 3600 docker exec -w /tmp \
     -e PYTHONPATH="$LIVE_CODE" -e PYTHONDONTWRITEBYTECODE=1 -e HF_HUB_OFFLINE=0 "$LIVE_CONTAINER" \
-    /opt/pilot/backup/bin/python -m hf_backup --phase upload \
+    /opt/pilot/gpu/bin/python -m hf_backup --phase upload \
     --config "$container_out/config.json" --run "$container_out" \
     --source "$LIVE_CODE" --workspace /workspace --label "$label" \
     > "$run_root/backup-$label-upload.log" 2>&1 || return $?

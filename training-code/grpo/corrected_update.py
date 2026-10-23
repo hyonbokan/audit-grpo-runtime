@@ -11,6 +11,7 @@ from typing import Any
 
 from grpo.corrected_loss import corrected_loss, support_logprobs
 from grpo.placement import hidden_on_head_device, layer_devices
+from runtime_io import new_phase_dir
 
 
 def join_update_group(
@@ -153,7 +154,7 @@ def run_update(config: dict[str, Any], out: Path) -> dict[str, Any]:
     from cycle_contract import validate_config, validate_policy_profile, write_event
 
     validate_config(config)
-    out.mkdir(parents=True, exist_ok=False)
+    new_phase_dir(out)
     receipt: dict[str, Any] = {"status": "loading", "optimizer_updates": 0}
     try:
         import torch
