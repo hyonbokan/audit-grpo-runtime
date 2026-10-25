@@ -200,3 +200,7 @@ Items 1–5 were done on 2026-10-23 (CPU tests only; no GPU or paid call has run
   test; it is recorded as such, and the medium comparison §6 asks for still needs a medium base.
 - 2026-10-22: the long-sequence fit settled the effort (medium). An interim reading that weight
   streaming freed nothing on the 2-GPU split came from nvidia-smi and was wrong.
+- 2026-10-25: segment 1 is one pass over unique rows, so flat or skipped groups are not revisited;
+  the "about half the groups give contrast" estimate in §4 was too high. Epochs, resampling flat
+  groups and reward-shape options are in [research.md](research.md); nothing changed in
+  the live run.
