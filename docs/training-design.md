@@ -179,6 +179,33 @@ Items 1–5 were done on 2026-10-23 (CPU tests only; no GPU or paid call has run
 8. Segment 1 schedule entry: `free-text-seg1-20261023`, started with
    `training-code/launch-segment.sh`.
 
+## 8. Continuing after a segment
+
+A segment ends at its step cap, its group or time limit, a ledger cap or a stop rule. What survives
+and what a continuation needs:
+
+- **State.** The last accepted checkpoint holds the adapter and the resume-only optimizer,
+  scheduler and RNG files; the final backup is a full, download-verified archive. Retention prunes
+  resume-only files of older checkpoints, so pin the step you may restart from
+  (`storage.resume_steps_pinned`) or keep the backup. The update loads `optimizer.pt` from the
+  checkpoint it starts from, so a continuation keeps the optimizer state.
+- **Registering it.** A new schedule entry with `launch.start = {"checkpoint": ...}` and
+  `training.initial_step` equal to the checkpoint's `global_step` (checked at launch), the same
+  `campaign` so judge ledgers carry on, its own cutoff and deadline, and a new `reward.version` if
+  the reward changes (a changed contract is not comparable inside one campaign).
+- **Which rows.** Each segment is one pass over its own list of unique rows (`epochs` stays 1), so
+  continuing on untried rows and a second pass over chosen rows are both new segments. The
+  controller takes the list from `training_row_ids`; the segment launcher does not yet write it, so
+  without it a registered schedule reshuffles every admitted row by seed and repeats rows already
+  visited. Add the field, with a test, before the next segment.
+- **Pools** worth separating: rows never tried; rows whose visit failed; skipped rows whose draws
+  were partial or equal but non-zero; skipped rows whose label cannot be found from the prompt
+  (drop these); updated rows (a second pass only if the evaluation shows training moved the model).
+- **Gates.** A written question, acceptance conditions, time and cost limits and a retry limit, and
+  the user's approval, as in §6.
+- **Shared hosts.** Another process can hold GPU memory. Check free memory before the first rollout
+  and reserve the GPUs; a start failure from this cause should not look like a model failure.
+
 ## Decision log
 
 - 2026-10-22: train at medium and evaluate at xhigh was proposed and rejected (the effort is part
@@ -204,3 +231,6 @@ Items 1–5 were done on 2026-10-23 (CPU tests only; no GPU or paid call has run
   the "about half the groups give contrast" estimate in §4 was too high. Epochs, resampling flat
   groups and reward-shape options are in [research.md](research.md); nothing changed in
   the live run.
+- 2026-10-27: segment 1 stopped before its step cap: two consecutive visits failed to start vLLM
+  because another process held GPU memory. Continuation procedure in §8; the research summary is in
+  [research.md](research.md).

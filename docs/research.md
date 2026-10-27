@@ -3,12 +3,12 @@
 The main research document of this project: the question, the method, the findings so far, the
 literature that bears on the next decisions, the open questions and the next experiments. It
 synthesizes the pilot run, the base-model measurements, the reward analysis and segment 1 of the
-free-text campaign. Updated 2026-10-25, while segment 1 was still running: everything about
-segment 1 is provisional until its evaluation is in.
+free-text campaign. Updated 2026-10-27. Segment 1 training stopped early (§2.4); its evaluation was still running, so
+everything about segment 1's effect is provisional until that evaluation is in.
 
-**Reading it.** Measurements from our own runs (benchmark draws, judge grades, corpus counts,
-costs, project and row names) are experiment records. They stay in the git-ignored `private/`,
-where an evidence appendix gives the figure behind each claim here. This document states what the
+**Reading it.** The measured figures (benchmark draws, judge grades, corpus counts) are in
+[research-data.md](research-data.md). Project names, row ids and prices stay in the git-ignored
+`private/`. This document states what the
 figures showed. Design decisions and their rules are in [training-design.md](training-design.md);
 hardware limits are in [compute-planning.md](compute-planning.md). Literature claims marked
 (summary) were read from search summaries or preprints, not full texts: check the paper before
@@ -108,8 +108,14 @@ groups give a contrast. A review of the flat groups found, by cause:
   a certain zero.
 - **Reward variants on the saved grades.** Partial credit and a lower N0 each add a contrast group
   or two among those graded; the volume factor never binds on these reports at N0 = 20.
-- **Failures are rare and judge-side.** The one failed visit was a judge connection timeout on both
-  grading attempts; grading has no backoff between retries.
+- **Failures were few and environmental.** Three visits failed in grading (two were judge connection
+  timeouts on both attempts; grading has no backoff between retries). Two consecutive visits then
+  failed because vLLM could not start: another process on the shared host held GPU memory, and the
+  controller's two-consecutive-failures rule ended training with about a day and a half of the
+  schedule unused. Lessons: check free GPU memory before a rollout, back off between judge retries,
+  and reserve the GPUs with the other users of a shared host before a long run.
+- **Outcome.** The run did one partial pass: most visited rows were skipped, a minority updated,
+  and the unvisited rows remain available for a continuation (training-design.md §8).
 - **Reports in flat groups** are short checklists; the known findings are protocol-logic and
   economic. No draw was truncated and report volume stayed far above the stop floor.
 
@@ -170,8 +176,10 @@ severities matters as much as sampling efficiency.
 - `next_cycle` takes the row at index `len(visits)`. A skipped or failed visit consumes its slot
   and is never requeued. The only repeats are a pending visit resumed after a restart and one
   in-visit retry of a failed grading that reuses the saved rollout.
-- A second pass or resampling needs a new reviewed schedule, a relaxed `epochs` guard and the
-  user's approval, and can only be built while no run is live.
+- A continuation, a second pass or a resample is a new segment over its own list of unique rows, so
+  `epochs` stays 1. It needs a new reviewed schedule, a way to give the schedule that row list
+  (`training_row_ids` is accepted by the controller but not yet written by the segment launcher),
+  and the user's approval, and can only be built while no run is live.
 
 ## 4. Open questions
 
@@ -193,7 +201,7 @@ severities matters as much as sampling efficiency.
 2. Partial credit of 0.25 on the judge's partial verdict under a new reward contract version, with
    exact recall as the headline and partial coverage reported alongside; N0 stays 20 until a lower
    value is checked against the base's findings-versus-F1 curve.
-3. A second pass over answerable rows, ordered by informativeness (partial or root-cause matches
+3. A second pass (a new segment over a chosen row list) over answerable rows, ordered by informativeness (partial or root-cause matches
    first, saturated rows last).
 4. One bounded resample of a flat group on the current policy when its draws were all partial or
    all zero on an answerable row.
@@ -224,5 +232,8 @@ Set thresholds before collecting results.
 
 ## 7. Change log
 
+- 2026-10-27: segment 1 stopped early after two consecutive rollout failures caused by GPU memory
+  held by another process; the evaluation of its last accepted checkpoint is running. Corrected §3:
+  a second pass needs a new row list, not a relaxed `epochs` guard.
 - 2026-10-25: first version: pilot lessons, base behaviour, reward analysis, segment 1 flat groups,
   epochs and replay literature, open questions and options.

@@ -45,6 +45,7 @@ One document per purpose. Link to the owner instead of repeating it.
 | `docs/training-design.md` | The training design: reward, effort and length, learning rate, schedule, acceptance, budget rules |
 | `docs/compute-planning.md` | GPU and host memory, what multiple GPUs buy, measured fits, hardware tiers for larger models |
 | `docs/research.md` | The main research document: question, findings so far, literature on epochs and replay, open questions, next experiments |
+| `docs/research-data.md` | The measured figures behind `docs/research.md`, public so later experiments can reuse them (no project names, prices or row ids) |
 | `planning-tools/README.md` | The compute estimator: usage, registries, calibration |
 | `archive/README.md` | What finished-experiment code was and why it left |
 | `private/README.md` | Which private note owns state, conclusions, history and evidence links |
