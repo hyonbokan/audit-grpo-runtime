@@ -129,6 +129,8 @@ def validate_config(config: dict[str, Any]) -> None:
 def validate_cases(config: dict[str, Any]) -> None:
     cases = config.get("cases", [])
     reference = config.get("base_reference")
+    if "base_pending" in config and (config["base_pending"] is not True or reference is not None):
+        raise ValueError("base_pending is true, and excludes a frozen base reference")
     if reference is not None:
         if (
             not isinstance(reference, dict)
@@ -140,10 +142,15 @@ def validate_cases(config: dict[str, Any]) -> None:
         if len(cases) != 1 or cases[0].get("label") == "base":
             raise ValueError("Against a frozen base, the run generates one trained arm only")
         trained = cases
+    elif config.get("base_pending") is True:
+        # The base run is produced elsewhere; this run generates and grades the trained arm alone.
+        if len(cases) != 1 or cases[0].get("label") == "base":
+            raise ValueError("A pending base admits one trained arm and no base arm")
+        trained = cases
     elif not cases or cases[0] != {"label": "base", "initial_step": 0} or len(cases) > 2:
         raise ValueError(
             "Cases are the base arm, optionally followed by one trained arm, "
-            "or one trained arm with a frozen base reference"
+            "or one trained arm with a frozen base reference or base_pending"
         )
     else:
         trained = cases[1:]

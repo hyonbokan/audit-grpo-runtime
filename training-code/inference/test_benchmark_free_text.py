@@ -124,6 +124,36 @@ def test_a_frozen_base_reference_admits_exactly_one_trained_arm(change):
         free_text.validate_config(config)
 
 
+def test_a_trained_arm_may_wait_for_its_base_only_when_the_config_says_so():
+    config = free_text_configuration()
+    config.update(cases=[TRAINED], generation_order=["checkpoint-4"], merged_model_path="/m")
+    free_text.validate_config(dict(config, base_pending=True))
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        lambda c: c.update(base_pending=False),
+        lambda c: c.update(base_reference=REFERENCE),
+        lambda c: c.update(cases=[{"label": "base", "initial_step": 0}, TRAINED]),
+        lambda c: c.update(cases=[{"label": "base", "initial_step": 0}]),
+        lambda c: c.update(cases=[TRAINED, dict(TRAINED, label="checkpoint-5", initial_step=5)]),
+    ],
+)
+def test_a_pending_base_admits_exactly_one_trained_arm_and_no_reference(change):
+    config = free_text_configuration()
+    config.update(
+        cases=[TRAINED],
+        generation_order=["checkpoint-4"],
+        merged_model_path="/m",
+        base_pending=True,
+    )
+    change(config)
+    config["generation_order"] = [case["label"] for case in config["cases"]]
+    with pytest.raises(ValueError):
+        free_text.validate_config(config)
+
+
 @pytest.mark.parametrize(
     "report",
     [

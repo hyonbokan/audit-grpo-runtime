@@ -180,6 +180,9 @@ project's config from the frozen base run named by the schedule's `evaluation_ba
 and pins it as `base_reference` (run root and `comparison.json` hash).
 `benchmark_evaluation.load_base_reference` refuses a base run whose settings, prompt, truth,
 judge prompt or source scope differ, so the arms differ only in their weights.
+A run whose base arm is produced elsewhere sets `base_pending: true`: one trained arm, no base
+reference, and `launch-evaluation.sh` reports that arm alone. The comparison is then a separate
+analysis against the base run once it exists; `finish` cannot add a reference afterwards.
 `launch-benchmark-suite.sh` samples every project's trained arm in one engine
 (`rollout.py evaluate-suite`): the merged weights load once and each request keeps its own
 seed and output allowance. One receipt, `rollout-receipt.json`, records the shared call's

@@ -3,8 +3,8 @@
 The main research document of this project: the question, the method, the findings so far, the
 literature that bears on the next decisions, the open questions and the next experiments. It
 synthesizes the pilot run, the base-model measurements, the reward analysis and segment 1 of the
-free-text campaign. Updated 2026-10-27. Segment 1 training stopped early (§2.4); its evaluation was still running, so
-everything about segment 1's effect is provisional until that evaluation is in.
+free-text campaign. Updated 2026-10-28. Segment 1 stopped at step 15; its completed evaluations
+show a small medium-effort gain below the acceptance threshold and no xhigh transfer gain (§2.6).
 
 **Reading it.** The measured figures (benchmark draws, judge grades, corpus counts) are in
 [research-data.md](research-data.md). Project names, row ids and prices stay in the git-ignored
@@ -127,6 +127,28 @@ code as an evaluation project is in the regression split and never trained. Alia
 with the wider archive is still open, and the controls do not address pretraining exposure to
 public benchmark material.
 
+### 2.6 Step-15 evaluation: medium and xhigh
+
+The matched free-text medium evaluation is complete: five projects, four draws per project and
+arm, identical prompt tokens, source scope, ground truth, judge, sampling and engine settings.
+The base found 13 distinct known vulnerabilities exactly and 14 partially; checkpoint 15 found
+19 exactly and 11 partially. A partial counts only when no draw matched that finding exactly.
+The combined exact-or-partial count rose from 27 to 30 of 100 known findings. The adapter also
+reported more findings (207 to 247), so coverage alone is insufficient to establish success.
+
+The existing acceptance calculation gives a volume-matched recall gain of 0.0241, below the
+required 0.03. Published F1 improved and all 20 trained draws were graded, but the overall gate
+failed. This is a positive medium-effort observation, not a passed experiment or evidence of
+general reasoning improvement. Six trained medium draws and seven base medium draws ended without
+closing their reasoning; the existing protocol graded their reasoning text. No draw hit its
+generation length cap. There are no repeated-seed measurements of the gain.
+
+At xhigh, the same adapter found fewer distinct exact matches than the base (44 versus 48),
+and the volume-matched gain was negative. Medium training therefore has not demonstrated an
+xhigh transfer benefit. Counts and acceptance measurements are in
+[research-data.md](research-data.md#9-matched-medium-evaluation-completed-2026-10-28);
+project-level results and immutable input identities remain in `private/`, `runs/` and `results/`.
+
 ## 3. Epochs, replay and resampling
 
 "Epoch" means two things in GRPO:
@@ -183,8 +205,8 @@ severities matters as much as sampling efficiency.
 
 ## 4. Open questions
 
-1. Does the step-25 evaluation show a volume-matched recall gain with F1 held? (Pending; the
-   comparison is trained-at-medium against the base at xhigh, a transfer test.)
+1. Can a bounded revised training run meet the recall-gain gate? Step 15 failed the gate at both
+   medium and xhigh; the medium comparison improved exact coverage but remained below threshold.
 2. Does the corpus builder join findings to repositories too loosely? How many multi-label rows
    carry an unanswerable label?
 3. How stable are the judge's partial verdicts, and do separate location, mechanism and impact
@@ -232,6 +254,8 @@ Set thresholds before collecting results.
 
 ## 7. Change log
 
+- 2026-10-28: recorded the completed matched medium base versus checkpoint-15 evaluation and
+  the completed xhigh transfer evaluation; both fail the reviewed acceptance gate.
 - 2026-10-27: segment 1 stopped early after two consecutive rollout failures caused by GPU memory
   held by another process; the evaluation of its last accepted checkpoint is running. Corrected §3:
   a second pass needs a new row list, not a relaxed `epochs` guard.
