@@ -123,6 +123,27 @@ frameworks when distributed execution and rollout scheduling justify the migrati
 
 ## Working on the code
 
+Install [pre-commit](https://pre-commit.com/) on the host with Python 3.10 or newer, then
+enable the repository's commit and push hooks:
+
+```bash
+pre-commit install
+pre-commit run --all-files
+```
+
+Commit checks use pinned Ruff lint and format checks, JSON/YAML validation, Bash syntax,
+conflict and symlink checks, private-key and private-artifact guards, a 1 MiB new-file limit,
+staged whitespace checks, and source-hash verification. Hooks do not rewrite source files.
+Ruff follows `training-code/pyproject.toml`; archived code keeps its historical conventions.
+After changing executable source or reviewed configs, regenerate `SOURCE_SHA256SUMS` explicitly
+before staging it with the source. Never regenerate it or edit training source during a live run.
+
+Before push, the hook runs the existing CPU suites in pinned Docker images; it requires the
+host setup in `HOST_SETUP.md`. It makes no GPU or paid judge calls. Run that check manually with
+`pre-commit run cpu-tests --hook-stage manual`. A workstation using the local test-image setup
+should run `bash training-code/run-tests-local.sh` as described below before pushing from a
+host with the pinned images.
+
 ```bash
 cd training-code
 bash run-tests-local.sh          # workstation: Docker + local deps image, no GPU or paid calls

@@ -1,0 +1,68 @@
+minimum_pre_commit_version: '4.3.0'
+default_install_hook_types: [pre-commit, pre-push]
+default_stages: [pre-commit]
+# Historical code is read-only and has its own original conventions.
+exclude: ^archive/
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: 0470f7c8a653e950f7cc5a653204ceb3fde4c02a  # v0.15.0
+    hooks:
+      - id: ruff-check
+        files: ^training-code/.*\.py$
+      - id: ruff-format
+        files: ^training-code/.*\.py$
+        args: [--check]
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c  # v6.0.0
+    hooks:
+      - id: check-json
+      - id: check-yaml
+      - id: check-merge-conflict
+        args: [--assume-in-merge]
+      - id: check-case-conflict
+      - id: check-symlinks
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: detect-private-key
+
+  - repo: local
+    hooks:
+      - id: shell-syntax
+        name: Check Bash syntax
+        language: system
+        entry: bash -c 'for file; do bash -n "$file" || exit; done' --
+        types: [shell]
+      - id: staged-whitespace
+        name: Check staged whitespace
+        language: system
+        entry: git diff --cached --check
+        pass_filenames: false
+        always_run: true
+      - id: source-provenance
+        name: Verify frozen source hashes
+        language: system
+        entry: python3 training-code/provenance.py --check
+        pass_filenames: false
+        always_run: true
+      - id: private-artifacts
+        name: Reject private artifacts and model files
+        language: system
+        entry: python3 -c 'import sys; print("Keep these files out of Git:\n" + "\n".join(sys.argv[1:])); sys.exit(1)'
+        files: >-
+          (?x)(
+            ^(private|runs|results|workspace|test-tools)/
+            | (^|/)private/
+            | (^|/)(\.env(\..*)?|host\.env|credentials\.json|token)$
+            | \.(pem|key|safetensors|bin|pt|pth|ckpt|gguf|tar|tgz|zip|jsonl|log)$
+            | \.tar\.gz$
+          )
+        exclude: (^|/)\.env\.example$
+      - id: cpu-tests
+        name: Run pinned CPU test suites
+        language: system
+        entry: bash training-code/run-tests.sh
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push, manual]
