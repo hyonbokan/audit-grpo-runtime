@@ -195,9 +195,10 @@ and what a continuation needs:
   the reward changes (a changed contract is not comparable inside one campaign).
 - **Which rows.** Each segment is one pass over its own list of unique rows (`epochs` stays 1), so
   continuing on untried rows and a second pass over chosen rows are both new segments. The
-  controller takes the list from `training_row_ids`; the segment launcher does not yet write it, so
-  without it a registered schedule reshuffles every admitted row by seed and repeats rows already
-  visited. Add the field, with a test, before the next segment.
+  controller takes the list from `training_row_ids`. A schedule's `launch.training_rows` names
+  a private JSON row list under `runs/`, pinned by `launch.training_rows_sha256`; the launcher
+  checks its identity and admitted rows and preserves its order. Without a list, the launcher
+  reshuffles every admitted row by seed and may repeat rows already visited.
 - **Pools** worth separating: rows never tried; rows whose visit failed; skipped rows whose draws
   were partial or equal but non-zero; skipped rows whose label cannot be found from the prompt
   (drop these); updated rows (a second pass only if the evaluation shows training moved the model).

@@ -76,6 +76,7 @@ def write_run(schedule_id: str, *, results: Path, lock: Path, host: dict[str, st
     benchmark = results / launch["benchmark_assets"] / "BENCHMARK_MANIFEST.json"
     if sha256_file(benchmark) != launch["benchmark_manifest_sha256"]:
         raise ValueError("Benchmark manifest differs from the reviewed schedule")
+    selection = training_rows(reviewed, results, corpus)
     start, adapter_sha256 = start_checkpoint(reviewed, results)
     ledgers = campaign_ledgers(reviewed, results)
     save_json(run / "source-plan.json", source_plan(reviewed, lock, ledgers["training"]))
@@ -106,12 +107,35 @@ def write_run(schedule_id: str, *, results: Path, lock: Path, host: dict[str, st
         "judge_ledger": ledgers["training"],
         "judge_ledgers": ledgers,
         "timezone": "UTC",
+        **selection,
     }
     save_json(run / "config.json", config)
     return run / "config.json"
 
 
 # --- Inputs
+
+
+def training_rows(reviewed: dict[str, Any], results: Path, corpus: Path) -> dict[str, Any]:
+    """An optional hashed private row list preserves the reviewed visit order."""
+    launch = reviewed["launch"]
+    if "training_rows" not in launch:
+        # Existing schedules use the controller's shuffled full training split.
+        return {}
+    path = results / launch["training_rows"]
+    if sha256_file(path) != launch["training_rows_sha256"]:
+        raise ValueError("Training row selection identity differs from the reviewed schedule")
+    rows = read_json(path)
+    admitted = read_json(corpus)["roles"]["train"]
+    if (
+        not isinstance(rows, list)
+        or not 0 < len(rows) <= reviewed["training"]["maximum_groups"]
+        or any(not isinstance(row, str) for row in rows)
+        or len(set(rows)) != len(rows)
+        or not set(rows) <= set(admitted)
+    ):
+        raise ValueError("Selection requires unique admitted training rows within the group limit")
+    return {"training_row_ids": rows}
 
 
 def start_checkpoint(reviewed: dict[str, Any], results: Path) -> tuple[str, str]:

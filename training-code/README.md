@@ -76,6 +76,10 @@ directory and, to start a run, its private backup repository. The launchers exit
    - `start`: `{"template": CHECKPOINT, "seed": N}` makes a zero-initialised step-0 adapter
      (`initial_checkpoint.py`) shaped like an earlier checkpoint of the same model;
      `{"checkpoint": CHECKPOINT}` continues from an accepted checkpoint.
+   - Optional `launch.training_rows` and `launch.training_rows_sha256`: a JSON list of admitted
+     training row ids under `runs/` and its SHA-256. The launcher preserves that order as
+     `training_row_ids`, refusing duplicates, unknown rows and lists beyond `maximum_groups`.
+     Without a selection, it shuffles the full training split as before.
 
    Anything unset takes `defaults`. An unregistered `schedule_id` is rejected, and the reward
    fails until `volume_allowance` is set.

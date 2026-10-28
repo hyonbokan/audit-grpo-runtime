@@ -87,6 +87,7 @@ def test_training_starts_from_a_fresh_step_zero_adapter_whose_hash_the_config_pi
     assert config["initial_adapter_sha256"] == sha256_file(start / "adapter_model.safetensors")
     assert config["cycle"]["checkpoint"] == config["initial_checkpoint"]
     assert read_json(start / "continuation_schedule.json")["learning_rate"] == 2e-5
+    assert "training_row_ids" not in config
 
 
 def test_paths_name_the_host_for_the_controller_and_results_for_the_workers(results):
@@ -170,3 +171,65 @@ def test_a_schedule_without_launch_inputs_cannot_start_a_run(results):
     (results / "medium-day-20261010").mkdir()
     with pytest.raises(ValueError, match="launch"):
         write(results, "medium-day-20261010")
+
+
+@pytest.fixture
+def selected_rows(results):
+    rows = ["second/all-scope", "first/all-scope"]
+    manifest = results / "corpus/manifest.json"
+    manifest.write_text(json.dumps({"roles": {"train": [*rows, "unused/all-scope"]}}))
+    path = results / "selected-rows.json"
+    path.write_text(json.dumps(rows))
+    registry = read_json(schedules.REGISTRY)
+    launch = registry["schedules"][SCHEDULE]["launch"]
+    launch.update(
+        corpus_manifest_sha256=sha256_file(manifest),
+        training_rows="selected-rows.json",
+        training_rows_sha256=sha256_file(path),
+    )
+    schedules.REGISTRY.write_text(json.dumps(registry))
+    return rows
+
+
+def test_selected_training_rows_keep_the_reviewed_order(results, selected_rows):
+    config = read_json(write(results))
+    assert config["training_row_ids"] == selected_rows
+
+
+def test_changed_training_row_selection_is_refused(results, selected_rows):
+    (results / "selected-rows.json").write_text(json.dumps(list(reversed(selected_rows))))
+    with pytest.raises(ValueError, match="Training row selection identity"):
+        write(results)
+
+
+@pytest.mark.parametrize("rows", [[], ["unknown/all-scope"], ["first/all-scope"] * 2, "first"])
+def test_invalid_training_row_selection_is_refused(results, selected_rows, rows):
+    path = results / "selected-rows.json"
+    path.write_text(json.dumps(rows))
+    registry = read_json(schedules.REGISTRY)
+    registry["schedules"][SCHEDULE]["launch"]["training_rows_sha256"] = sha256_file(path)
+    schedules.REGISTRY.write_text(json.dumps(registry))
+    with pytest.raises(ValueError, match="unique admitted training rows"):
+        write(results)
+
+
+def test_continuation_keeps_the_accepted_checkpoint_and_step(results):
+    registry = read_json(schedules.REGISTRY)
+    entry = registry["schedules"][SCHEDULE]
+    entry["launch"]["start"] = {"checkpoint": "october/checkpoint-13"}
+    entry["training"]["initial_step"] = 14
+    schedules.REGISTRY.write_text(json.dumps(registry))
+    config = read_json(write(results))
+    assert config["initial_checkpoint"] == "/results/october/checkpoint-13"
+    assert config["initial_adapter_sha256"] == sha256_file(
+        results / "october/checkpoint-13/adapter_model.safetensors"
+    )
+    assert config["cycle"]["initial_step"] == 14
+
+
+def test_training_row_selection_cannot_exceed_the_reviewed_group_limit(results, selected_rows):
+    registry = read_json(schedules.REGISTRY)
+    registry["schedules"][SCHEDULE]["training"]["maximum_groups"] = 1
+    schedules.REGISTRY.write_text(json.dumps(registry))
+    with pytest.raises(ValueError, match="unique admitted training rows"):
+        write(results)

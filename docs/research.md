@@ -199,8 +199,8 @@ severities matters as much as sampling efficiency.
   and is never requeued. The only repeats are a pending visit resumed after a restart and one
   in-visit retry of a failed grading that reuses the saved rollout.
 - A continuation, a second pass or a resample is a new segment over its own list of unique rows, so
-  `epochs` stays 1. It needs a new reviewed schedule, a way to give the schedule that row list
-  (`training_row_ids` is accepted by the controller but not yet written by the segment launcher),
+  `epochs` stays 1. It needs a new reviewed schedule and a hashed private row list
+  (`launch.training_rows` and `launch.training_rows_sha256`, written as `training_row_ids`),
   and the user's approval, and can only be built while no run is live.
 
 ## 4. Open questions
