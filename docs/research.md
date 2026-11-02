@@ -191,6 +191,39 @@ changes. Audit-specific cautions: success is not binary, four draws are a noisy 
 priority must not react strongly to one group, and coverage across vulnerability types and
 severities matters as much as sampling efficiency.
 
+### Hypothesis: previously flat rows become informative on a later pass
+
+**Recorded 2026-11-02; not yet an observed result.** Early updates on other rows may improve
+the policy enough that a previously all-zero group produces exact matches when revisited.
+This could create new reward contrast and further updates, or make all four answers better
+without creating contrast. Later passes could therefore become more productive, but neither
+larger updates nor better held-out scores follow automatically from the pass number.
+
+The run starts with a capable base model and a zero-effect LoRA adapter, not random model
+weights. There is no learning-rate warmup. Describe the proposed effect as an early sparse-signal
+phase followed by potentially more informative visits, rather than assuming a cold-start schedule.
+Each revisit generates fresh answers from the current policy and grades them under the same
+contract; it does not replay old answers.
+
+Review the same rows across visits, separating their previous state:
+
+| Transition | Interpretation |
+|---|---|
+| Flat zero -> mixed rewards with exact matches | New successes and a usable update signal |
+| Flat zero -> uniformly higher rewards | Improvement without a group-relative update |
+| Flat zero -> flat zero | No observed improvement |
+| Previously positive -> lower rewards | Possible regression, even if contrast increases |
+
+Record all four rewards, exact and partial matches, report volume, failures and truncation.
+Compare only matching prompts, truth and reward contracts. Include unchanged and regressing
+rows, and track previously mixed groups as well. A change in one four-draw group cannot isolate
+learning from sampling or judge variation. Increased reward variance is not itself success;
+the held-out benchmark remains a separate check of generalization.
+
+The saved baseline covers all 81 scheduled revisit rows, of which 56 were flat. Counts and
+the collection status are in [research-data.md](research-data.md#10-baseline-for-reviewing-previously-flat-rows-2026-11-02).
+The per-row evidence stays in the ignored run records indexed from `private/`.
+
 ### How the controller treats rows today
 
 - The schedule is a list of unique row ids; `reviewed_training_order` rejects `epochs != 1` and
@@ -216,6 +249,8 @@ severities matters as much as sampling efficiency.
 5. Do training and evaluation disagree about validity (training accepts a fenced answer)?
 6. Alias-level overlap between trained protocols and the held-out projects is unchecked.
 7. Total cost and staff effort are not reconciled, so the method's practicality is unassessed.
+8. Do previously flat rows develop exact matches on a later pass, and does any increase in
+   useful update groups accompany better held-out performance? See the revisit hypothesis in §3.
 
 ## 5. Options for the next segment (none applied)
 
@@ -254,6 +289,8 @@ Set thresholds before collecting results.
 
 ## 7. Change log
 
+- 2026-11-02: recorded the hypothesis and comparison protocol for previously flat rows on later
+  passes, with a saved baseline; no second-pass effect had been measured at collection.
 - 2026-10-28: recorded the completed matched medium base versus checkpoint-15 evaluation and
   the completed xhigh transfer evaluation; both fail the reviewed acceptance gate.
 - 2026-10-27: segment 1 stopped early after two consecutive rollout failures caused by GPU memory

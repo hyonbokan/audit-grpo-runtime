@@ -217,6 +217,56 @@
         }
       },
       "evaluation_base_reference": "base-free-text-medium-20261028-{project}"
+    },
+    "free-text-seg3-20261102": {
+      "training_cutoff": "2026-11-09T12:00:00+00:00",
+      "final_deadline": "2026-11-10T06:00:00+00:00",
+      "maximum_context": 65536,
+      "judge_cap_usd": 120,
+      "launch": {
+        "campaign": "free-text-campaign-20261023",
+        "corpus": "free-text-corpus-20261023",
+        "corpus_manifest_sha256": "abcce81a92c0e72ba551a7caefa471673dfbb5630222c2c7d07ca50b35e8f944",
+        "benchmark_assets": "benchmark-solidity1-full-context-20261009/assets",
+        "benchmark_manifest_sha256": "7fdeed5e42d495cf30ec91799530c6069423a2aa83235c7275c8746309b5a25a",
+        "prior_analysis": "a6000-fit-20261021/prior-analysis-reconstructed.json",
+        "start": {
+          "checkpoint": "free-text-seg2-20261028-visit-030/update/checkpoint-25"
+        },
+        "training_rows": "free-text-seg3-inputs-20261102/training-rows.json",
+        "training_rows_sha256": "559d5bf3d0e126984fdc66e96b3edf1ba550d96817453dc54be75216443caf1b"
+      },
+      "storage": {
+        "resume_steps_pinned": [
+          15,
+          25,
+          50
+        ]
+      },
+      "training": {
+        "initial_step": 25,
+        "maximum_step": 50,
+        "maximum_groups": 90,
+        "judge_seconds_limit": 3600,
+        "judge_operation_cap_usd": 40,
+        "learning_rate": 2e-05,
+        "offload_layers": 64,
+        "tiled_mlp": true,
+        "update_placement": {
+          "gpus": [
+            0,
+            1
+          ],
+          "embedding": "gpu",
+          "max_memory_gib": 30
+        },
+        "tensor_parallel_size": 2,
+        "reward": {
+          "version": "free-text-recall-volume-v1",
+          "volume_allowance": 20
+        }
+      },
+      "evaluation_base_reference": "base-free-text-medium-20261028-{project}"
     }
   }
 }
