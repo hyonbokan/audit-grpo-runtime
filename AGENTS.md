@@ -58,7 +58,7 @@ One document per purpose. Link to the owner instead of repeating it.
 
 ## Where code lives
 
-- Maintained code lives in `training-code/` only. `diagnostic-tools/`, `backup-tools/` and
+- Maintained code lives in `training-code/` only. `diagnostic-tools/` and
   `planning-tools/` are standalone utilities; `images/` holds the image build recipe and locks; `archive/`
   is read-only history. Never import from `archive/`.
 - One implementation per behavior. Before writing a function, search for an existing one
