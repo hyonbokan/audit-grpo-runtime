@@ -16,12 +16,11 @@ from corpus_checks import check_benchmark_overlap
 from frozen_requests import extend_request, rerender_request
 from hf_backup import backed_up_visits
 from panels import evaluation_configs, merged_path, verify_merge
-from progress import training_order, verify_dataset
+from progress import GROUP_SIZE, training_order, verify_dataset
 from retention import prune_visits, release_merge, require_free_space
 from runtime_io import new_result_dir, read_json, save_json, seconds_until, sha256_file, utc_now
 from schedules import scope
 
-GROUP_SIZE = 4
 # A visit starts only if this much time remains; later visits size it from recent visits.
 VISIT_RESERVE_MINIMUM_SECONDS = 1800
 VISIT_RESERVE_FACTOR = 1.25

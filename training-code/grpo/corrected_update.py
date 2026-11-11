@@ -11,6 +11,7 @@ from typing import Any
 
 from grpo.corrected_loss import corrected_loss, support_logprobs
 from grpo.placement import hidden_on_head_device, layer_devices
+from progress import GROUP_SIZE
 from runtime_io import new_phase_dir
 
 
@@ -20,7 +21,7 @@ def join_update_group(
     rewards: list[float],
     expected_version: str,
 ) -> list[dict[str, Any]]:
-    if len(samples) != 4 or len(rewards) != 4:
+    if len(samples) != GROUP_SIZE or len(rewards) != GROUP_SIZE:
         raise ValueError("Complete four-draw grades required")
     if any(
         sample.get("weight_version") != expected_version
@@ -43,7 +44,7 @@ def apply_update(
 ) -> dict[str, Any]:
     import torch
 
-    if len(group) != 4 or not expected_version:
+    if len(group) != GROUP_SIZE or not expected_version:
         raise ValueError("Exactly four versioned draws required")
     for sample in group:
         if (

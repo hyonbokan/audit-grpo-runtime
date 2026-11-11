@@ -13,6 +13,7 @@ from typing import Any
 import schedules
 from benchmark_free_text import SCOPE_PATH as BENCHMARK_SCOPE_PATH
 from grpo.placement import docker_gpus, load_options, rollout_gpus
+from progress import GROUP_SIZE
 from runtime_io import read_json, save_json, sha256_file
 
 SCOPE_PATH = Path(__file__).with_name("cycle_scope.json")
@@ -236,13 +237,13 @@ def finish_cycle(config: dict[str, Any], out: Path) -> dict[str, Any]:
     request = read_json(config["request"])
     checkpoint = out / f"update/checkpoint-{config['target_step']}"
     evidence = {
-        "complete_group": len(samples) == 4
+        "complete_group": len(samples) == GROUP_SIZE
         and all(
             sample.get("row_id") == config["row_id"] == request["row_id"]
             and sample.get("prompt_ids") == request["prompt_ids"]
             for sample in samples
         ),
-        "known_grades": len(grades) == 4
+        "known_grades": len(grades) == GROUP_SIZE
         and all(type(value) in (int, float) and math.isfinite(value) for value in grades),
         "sampling_support": all(
             sample.get("sampling_support_ids") is not None for sample in samples
