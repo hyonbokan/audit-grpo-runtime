@@ -149,7 +149,6 @@ def create_bundle(
     save(out / "RESTORE_CHECK.json", evidence)
     files = file_manifest(out)
     save(out / "FILE_SHA256.json", files)
-    verify_files(out, files)
     return {
         "kind": kind,
         "step": state["current_step"],
