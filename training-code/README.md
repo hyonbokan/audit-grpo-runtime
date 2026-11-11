@@ -86,7 +86,8 @@ directory and, to start a run, its private backup repository. The launchers exit
 2. Start it: `bash training-code/launch-segment.sh SCHEDULE_ID`. It regenerates and verifies
    `SOURCE_SHA256SUMS`, writes `runs/SCHEDULE_ID/` with `training_config.py` (config, source
    plan, prior analysis; the step-0 adapter in `runs/SCHEDULE_ID-start/`; the campaign ledgers
-   once), copies the source identity in and starts `launch-training.sh` detached. The run id is
+   once), copies the source identity in, records the git commit and any uncommitted source change
+   (`source-commit.txt`, `source-uncommitted.diff`) and starts `launch-training.sh` detached. The run id is
    the schedule id. If it stops before training begins, delete `runs/SCHEDULE_ID/` and start
    again: the step-0 adapter and the ledgers are reused.
 
