@@ -208,11 +208,8 @@ def continuation_config():
     )
 
 
-def test_preparation_carries_explicit_dotenv_path_to_training_worker(tmp_path, monkeypatch):
-    from cycle_contract import prepare_cycle
-
-    freeze(monkeypatch, cycle_contract, "2026-10-10T00:00:00+00:00")
-
+def prepare_inputs(tmp_path):
+    """A continuation config whose checkpoint and input files exist."""
     config = continuation_config()
     checkpoint = tmp_path / "checkpoint-2"
     checkpoint.mkdir()
@@ -237,6 +234,14 @@ def test_preparation_carries_explicit_dotenv_path_to_training_worker(tmp_path, m
         path = tmp_path / f"{key}.json"
         path.write_text("{}")
         config[key] = str(path)
+    return config
+
+
+def test_preparation_carries_explicit_dotenv_path_to_training_worker(tmp_path, monkeypatch):
+    from cycle_contract import prepare_cycle
+
+    freeze(monkeypatch, cycle_contract, "2026-10-10T00:00:00+00:00")
+    config = prepare_inputs(tmp_path)
     out = tmp_path / "cycle"
     out.mkdir()
     prepare_cycle(config, out)
@@ -244,6 +249,20 @@ def test_preparation_carries_explicit_dotenv_path_to_training_worker(tmp_path, m
     assert plan["judge_env_file"] == "/opt/audit-grpo-secrets/judge.env"
     assert plan["reward"] == schedules.scope(config)["training"]["reward"]
     assert plan["benchmark_judge"] == read_json(BENCHMARK_SCOPE_PATH)["benchmark_judge"]
+
+
+def test_a_preparation_that_fails_leaves_no_resume_marker(tmp_path, monkeypatch):
+    from cycle_contract import prepare_cycle
+
+    freeze(monkeypatch, cycle_contract, "2026-10-10T00:00:00+00:00")
+    config = prepare_inputs(tmp_path)
+    (tmp_path / "source_plan.json").write_text("not json")
+    out = tmp_path / "cycle"
+    out.mkdir()
+    with pytest.raises(json.JSONDecodeError):
+        prepare_cycle(config, out)
+    assert not (out / "prepared.json").exists()
+    assert not (out / "judge-plan.json").exists()
 
 
 def test_acceptance_rejects_samples_from_a_row_outside_the_frozen_step(tmp_path):

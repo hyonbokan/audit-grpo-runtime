@@ -13,7 +13,7 @@ from typing import Any
 import schedules
 from benchmark_free_text import SCOPE_PATH as BENCHMARK_SCOPE_PATH
 from grpo.placement import docker_gpus, load_options, rollout_gpus
-from runtime_io import read_json, sha256_file
+from runtime_io import read_json, save_json, sha256_file
 
 SCOPE_PATH = Path(__file__).with_name("cycle_scope.json")
 
@@ -192,7 +192,6 @@ def prepare_cycle(config: dict[str, Any], out: Path) -> None:
             raise FileNotFoundError(config[name])
     if not Path(config["model_path"]).is_dir():
         raise FileNotFoundError(config["model_path"])
-    (out / "prepared.json").write_text(json.dumps(config, indent=2) + "\n")
     plan = json.loads(Path(config["source_plan"]).read_text())
     plan["judge_operation"] = {"id": config["run_id"], "cap_usd": config["judge_operation_cap_usd"]}
     if config.get("judge_env_file"):
@@ -203,7 +202,9 @@ def prepare_cycle(config: dict[str, Any], out: Path) -> None:
     # The judge and the reward come from the reviewed files, never from the cycle config.
     plan["reward"] = schedules.scope(config)["training"]["reward"]
     plan["benchmark_judge"] = read_json(BENCHMARK_SCOPE_PATH)["benchmark_judge"]
-    (out / "judge-plan.json").write_text(json.dumps(plan, indent=2) + "\n")
+    save_json(out / "judge-plan.json", plan)
+    # The resume marker comes last: a resumed cycle skips preparation and needs the plan.
+    save_json(out / "prepared.json", config)
     write_event(
         out, "cycle_start", initial_step=config["initial_step"], target_step=config["target_step"]
     )
@@ -288,7 +289,7 @@ def finish_cycle(config: dict[str, Any], out: Path) -> dict[str, Any]:
         "target_step": config["target_step"],
         "quality_gain_established": False,
     }
-    (out / "cycle-result.json").write_text(json.dumps(result, indent=2) + "\n")
+    save_json(out / "cycle-result.json", result)
     write_event(out, "cycle_end", approved=result["decision"]["approved"])
     return result
 
