@@ -8,6 +8,8 @@ from collections import Counter
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from grpo.budget import BudgetExhausted
+
 Judge = Callable[[str], Awaitable[dict[str, Any]]]
 BATCH_SIZE = 30
 
@@ -16,6 +18,8 @@ async def judge_vote(prompt: str, call: Judge) -> dict[str, Any]:
     async def attempt() -> dict[str, Any] | None:
         try:
             return await call(prompt)
+        except BudgetExhausted:
+            raise
         except Exception:
             # Transport owns failure/usage recording. Failed iterations do not cast votes.
             return None
@@ -55,6 +59,8 @@ async def evaluate_findings(
     for target_index, target in enumerate(truth):
         try:
             result = await match_batches(working, target, template, judge)
+        except BudgetExhausted:
+            raise
         except Exception as error:
             errors.append(
                 {"target_index": target_index, "error": f"{type(error).__name__}: {error}"}

@@ -105,3 +105,26 @@ def test_positive_verdict_without_valid_finding_index_is_unknown():
     result = asyncio.run(evaluate_findings([finding], [finding], "prompt", judge))
     assert result["status"] == "unknown"
     assert result["exact_coverage"] is None
+
+
+@pytest.mark.parametrize("failing_call", [1, 3])
+def test_budget_exhaustion_in_a_vote_stops_grading_instead_of_losing_a_vote(failing_call):
+    from benchmark_matching import evaluate_findings, judge_vote
+    from grpo.budget import BudgetExhausted
+
+    calls = []
+
+    async def call(prompt):
+        calls.append(prompt)
+        if len(calls) == failing_call:
+            raise BudgetExhausted("cap")
+        return verdict(exact=len(calls) == 1)
+
+    async def judge(prompt):
+        return await judge_vote(prompt, call)
+
+    finding = {"issue": "x", "description": "body", "severity": "High", "contracts": []}
+    with pytest.raises(BudgetExhausted, match="cap"):
+        asyncio.run(evaluate_findings([finding], [finding], "prompt", judge))
+    # The first two iterations run together, so both are sent before the cap stops the vote.
+    assert len(calls) == max(failing_call, 2)
