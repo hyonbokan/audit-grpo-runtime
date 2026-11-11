@@ -15,6 +15,9 @@ if [[ "${3:-}" == --resume ]]; then resume=1; elif [[ -n "${3:-}" ]]; then echo 
   echo "The cycle directory must exist under $runtime_root/runs" >&2
   exit 2
 }
+# Verify the source before moving any earlier attempt's evidence.
+cd -- "$code_root"
+sha256sum --check "$run_root/SOURCE_SHA256SUMS" > "$run_root/source-verification.log"
 if ((resume)); then
   # Archive the failed attempt's logs and incomplete phases; completed phases are reused.
   [[ -f "$run_root/prepared.json" ]] || { echo "Resume requires a prepared cycle" >&2; exit 2; }
@@ -31,8 +34,6 @@ else
     mv "$run_root/launcher-exit.txt" "$run_root/last-phase.txt" "$archive/" 2>/dev/null || true
   fi
 fi
-cd -- "$code_root"
-sha256sum --check "$run_root/SOURCE_SHA256SUMS" > "$run_root/source-verification.log"
 source "$code_root/launch-lib.sh"
 config=/run-config.json
 container_out="/results/$(basename -- "$run_root")"

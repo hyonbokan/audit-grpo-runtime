@@ -174,3 +174,38 @@ esac
     assert result.returncode == 124, result.stderr
     assert (run / "launcher-exit.txt").read_text().strip() == "124"
     assert (run / "last-phase.txt").read_text().strip() == "update"
+
+
+def test_a_resume_with_changed_source_moves_no_evidence(tmp_path):
+    root = tmp_path / "runtime"
+    code = root / "training-code"
+    code.mkdir(parents=True)
+    write_host_settings(root)
+    run = root / "runs/test-cycle"
+    run.mkdir(parents=True)
+    for name in ("launch-cycle.sh", "launch-lib.sh", "cycle_recovery.py"):
+        shutil.copyfile(Path(__file__).with_name(name), code / name)
+    (run / "SOURCE_SHA256SUMS").write_text(f"{'0' * 64}  launch-cycle.sh\n")
+    config = run / "config.json"
+    config.write_text("{}")
+    (run / "prepared.json").write_text("{}")
+    (run / "update").mkdir()
+    (run / "update/receipt.json").write_text('{"status": "failed"}')
+    (run / "launcher-exit.txt").write_text("57\n")
+    before = sorted(str(path.relative_to(run)) for path in run.rglob("*"))
+    executables = tmp_path / "bin"
+    executables.mkdir()
+    docker = executables / "docker"
+    docker.write_text("#!/bin/bash\necho unexpected docker >&2\nexit 99\n")
+    docker.chmod(0o755)
+    result = subprocess.run(
+        ["bash", str(code / "launch-cycle.sh"), str(run), str(config), "--resume"],
+        env={**os.environ, "PATH": f"{executables}:{os.environ['PATH']}"},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 1, result.stderr
+    assert "did NOT match" in result.stderr
+    after = sorted(str(path.relative_to(run)) for path in run.rglob("*"))
+    assert after == sorted([*before, "source-verification.log"])
+    assert (run / "launcher-exit.txt").read_text() == "57\n"

@@ -13,6 +13,9 @@ if [[ "${3:-}" == --resume ]]; then resume=1; elif [[ -n "${3:-}" ]]; then echo 
   echo "The run must be under $runtime_root/runs and its config inside the run directory" >&2
   exit 2
 }
+# Verify the source before moving any earlier attempt's evidence.
+cd -- "$code_root"
+sha256sum --check "$run_root/SOURCE_SHA256SUMS" > "$run_root/source-verification.log"
 if ((resume)); then
   # Resume training from state.json: accepted visits are kept and an unrecorded
   # pending visit continues in place. Finished training is not re-entered.
@@ -31,8 +34,6 @@ else
     exit 2
   }
 fi
-cd -- "$code_root"
-sha256sum --check "$run_root/SOURCE_SHA256SUMS" > "$run_root/source-verification.log"
 source "$code_root/launch-lib.sh"
 container_out="/results/$(basename -- "$run_root")"
 pythonpath=/training-code:/training-code/inference:/workspace/code/backend
