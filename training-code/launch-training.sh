@@ -41,7 +41,7 @@ pythonpath=/training-code:/training-code/inference:/workspace/code/backend
 controller_mounts=(-v "$code_root:/training-code:ro" -v "$runtime_root:$runtime_root"
   -v "$runtime_root/runs:/results" -v "$FROZEN_WORKSPACE:/workspace:ro"
   -v "$CACHE:$CACHE" -v "$CACHE:/workspace/cache"
-  -v "$config:/training-config.json:ro" -v "$runtime_root/diagnostic-tools:/diagnostic-tools:ro")
+  -v "$config:/training-config.json:ro")
 cpu() {
   docker run --rm --network none "${controller_mounts[@]}" -e "PYTHONPATH=$pythonpath" \
     -e PYTHONDONTWRITEBYTECODE=1 -e HF_HUB_OFFLINE=1 -e OMP_NUM_THREADS=1 \
@@ -126,7 +126,7 @@ merge() {
   revision=$(json_value "$config" cycle model_revision)
   timeout --foreground -k 30 3600 docker run --rm --network none --cpus 8 --memory 128g \
     "${controller_mounts[@]}" -e OMP_NUM_THREADS=8 "$CPU_IMAGE" \
-    /opt/pilot/gpu/bin/python /diagnostic-tools/merge_checkpoint.py \
+    /opt/pilot/gpu/bin/python /training-code/merge_checkpoint.py \
     --base "$base" --adapter "$adapter" --output "$output" --revision "$revision" \
     >> "$run_root/merge.log" 2>&1
 }

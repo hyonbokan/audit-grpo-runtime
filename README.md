@@ -111,7 +111,7 @@ frameworks when distributed execution and rollout scheduling justify the migrati
 | `training-code/` | The maintained code: launchers, controller, native update, judge, evaluation. See its [README](training-code/README.md). |
 | `images/` | Dockerfile, locks and build script for the pinned runtime images. See [HOST_SETUP.md](HOST_SETUP.md). |
 | `docs/` | The training design, compute planning (memory, multiple GPUs, hardware tiers for larger models) and the main research document. |
-| `diagnostic-tools/` | Standalone utilities: checkpoint merge and comparison, long-sequence fit inputs. `merge_checkpoint.py` is called by `launch-training.sh`. |
+| `diagnostic-tools/` | Standalone utilities: runtime-LoRA vs merged comparison, long-sequence fit inputs. |
 | `planning-tools/` | Compute estimator for memory, time and hardware tiers of candidate models. See its [README](planning-tools/README.md). |
 | `archive/` | Finished-experiment code and the original extraction provenance. Read-only. |
 | `results/` | Published results only: `README.md` (the results table) and one `<model>/results.json` per evaluated model, written by `training-code/publish-results.sh` (not in git). |

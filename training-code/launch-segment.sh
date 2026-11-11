@@ -29,11 +29,10 @@ docker run --rm --network none --user "$(id -u):$(id -g)" "${mounts[@]}" "${envi
   --hf-repo "$AUDIT_GRPO_HF_REPO" --judge-env-file "$JUDGE_ENV"
 cp SOURCE_SHA256SUMS "$run_root/"
 # The hashes say what ran; the commit and any uncommitted change say where it came from.
-frozen=(training-code diagnostic-tools/merge_checkpoint.py)
 if commit=$(git -C "$runtime_root" rev-parse HEAD 2>/dev/null); then
   printf '%s\n' "$commit" > "$run_root/source-commit.txt"
-  { git -C "$runtime_root" status --porcelain=v1 -- "${frozen[@]}"
-    git -C "$runtime_root" diff HEAD -- "${frozen[@]}"; } > "$run_root/source-uncommitted.diff"
+  { git -C "$runtime_root" status --porcelain=v1 -- training-code
+    git -C "$runtime_root" diff HEAD -- training-code; } > "$run_root/source-uncommitted.diff"
 else
   echo "not a git checkout" > "$run_root/source-commit.txt"
 fi

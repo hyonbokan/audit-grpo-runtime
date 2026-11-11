@@ -18,15 +18,13 @@ def test_a_started_run_records_the_commit_and_uncommitted_changes_it_froze(tmp_p
     with (root / "host.env").open("a") as stream:
         stream.write("AUDIT_GRPO_HF_REPO=owner/backups\n")
     (root / "runs").mkdir()
-    (root / "diagnostic-tools").mkdir()
-    (root / "diagnostic-tools/merge_checkpoint.py").write_text("# merge\n")
     for name in ("launch-segment.sh", "launch-lib.sh", "provenance.py"):
         shutil.copyfile(Path(__file__).with_name(name), code / name)
     (code / "launch-training.sh").write_text("exit 0\n")
     (code / "schedules.json").write_text("{}\n")
     git = ["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
     subprocess.run([*git, "init", "-q"], check=True)
-    subprocess.run([*git, "add", "training-code", "diagnostic-tools"], check=True)
+    subprocess.run([*git, "add", "training-code"], check=True)
     subprocess.run([*git, "commit", "-q", "-m", "base"], check=True)
     head = subprocess.run(
         [*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True

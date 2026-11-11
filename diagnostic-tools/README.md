@@ -2,13 +2,7 @@
 
 These tools diagnose inference and do not update training weights or rollout paths.
 They reuse the frozen training implementation's adapter mapping/worker verification.
-The active training-code source manifest remains unchanged.
-
-`merge_checkpoint.py` creates a fresh inference-only safetensors model from a pinned
-base and adapter. It validates the supported LoRA configuration, casts adapter
-operands to BF16, accumulates each256-row block in FP32, saves BF16 weights, verifies
-all untouched tensors and records source/output hashes. Original checkpoint state
-is never written. Unsupported scaling/adapter features fail explicitly.
+The merge they compare against is `training-code/merge_checkpoint.py`.
 
 `merge_comparison.py` runs separate runtime-LoRA and normal merged-model vLLM
 workers, then compares recorded timing and fixed-sequence raw log-probabilities.
