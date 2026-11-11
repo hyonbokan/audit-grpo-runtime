@@ -79,12 +79,14 @@ start_deadline_timer "$timer" "$seconds" "$prefix-rollout" "$prefix-update"
 
 gpu_phase() {
   local image=$1 memory=$2 gpus=$3 container="$prefix-$phase"
-  local phase_started
+  local phase_started left
   phase_started=$(date +%s)
   shift 3
   containers+=("$container")
   docker rm "$container" >/dev/null 2>&1 || true
-  timeout --foreground -k 10 "$(remaining)s" docker run --name "$container" \
+  # `|| return`: errexit does not reach a command substitution inside a function.
+  left=$(remaining) || return 124
+  timeout --foreground -k 10 "${left}s" docker run --name "$container" \
     --network none --gpus "$gpus" --cpus 8 --memory "$memory" --shm-size 16g \
     "${mounts[@]}" "${environment[@]}" "$image" /opt/pilot/gpu/bin/python "$@" \
     > "$run_root/$phase.log" 2>&1
@@ -123,7 +125,8 @@ phase_complete update || gpu_phase "$native_image" 128g "$update_gpus" -m grpo.c
   --config "$config" --out "$container_out/update"
 
 phase=acceptance
-timeout --foreground "$(remaining)s" docker run --rm --network none \
+left=$(remaining)
+timeout --foreground "${left}s" docker run --rm --network none \
   "${mounts[@]}" "${environment[@]}" "$native_image" \
   /opt/pilot/gpu/bin/python -m cycle_contract finish --config "$config" --out "$container_out" \
   > "$run_root/acceptance.log" 2>&1

@@ -63,7 +63,8 @@ start_deadline_timer "$timer" "$seconds" "$prefix-rollout"
 
 phase=prepare
 for project in "${projects[@]}"; do
-  timeout --foreground "$(remaining)s" docker run --rm --network none \
+  left=$(remaining)
+  timeout --foreground "${left}s" docker run --rm --network none \
     "${mounts[@]}" "${environment[@]}" "$native_image" /opt/pilot/gpu/bin/python \
     /training-code/inference/benchmark_evaluation.py prepare \
     --config "/results/$project/config.json" --out "/results/$project" \
@@ -73,7 +74,8 @@ done
 phase=rollout
 manifest=$(suite manifest)
 containers+=("$prefix-rollout")
-timeout --foreground -k 10 "$(remaining)s" docker run --name "$prefix-rollout" \
+left=$(remaining)
+timeout --foreground -k 10 "${left}s" docker run --name "$prefix-rollout" \
   --network none --gpus all --cpus 8 --memory 64g --shm-size 16g \
   "${mounts[@]}" "${environment[@]}" "$rollout_image" \
   /opt/pilot/gpu/bin/python /training-code/inference/rollout.py evaluate-suite \

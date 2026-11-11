@@ -59,20 +59,23 @@ trap 'exit 143' TERM
 start_deadline_timer "$timer" "$seconds" "$container"
 
 phase=prepare
-timeout --foreground "$(remaining)s" docker run --rm --network none \
+left=$(remaining)
+timeout --foreground "${left}s" docker run --rm --network none \
   "${mounts[@]}" "${environment[@]}" "$native_image" /opt/pilot/gpu/bin/python \
   "$probe" prepare --config "$config" --out "$container_out" > "$run_root/prepare.log" 2>&1
 
 phase=generation
 containers+=("$container")
-timeout --foreground -k 10 "$(remaining)s" docker run --name "$container" \
+left=$(remaining)
+timeout --foreground -k 10 "${left}s" docker run --name "$container" \
   --network none --gpus all --cpus 8 --memory 64g --shm-size 16g \
   "${mounts[@]}" "${environment[@]}" "$rollout_image" \
   /opt/pilot/gpu/bin/python "$probe" run --config "$config" --out "$container_out" \
   > "$run_root/generation.log" 2>&1
 
 phase=report
-timeout --foreground "$(remaining)s" docker run --rm --network none \
+left=$(remaining)
+timeout --foreground "${left}s" docker run --rm --network none \
   "${mounts[@]}" "${environment[@]}" "$native_image" /opt/pilot/gpu/bin/python \
   "$probe" report --config "$config" --out "$container_out" > "$run_root/report.log" 2>&1
 phase=complete

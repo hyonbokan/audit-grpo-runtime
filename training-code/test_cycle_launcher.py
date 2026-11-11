@@ -127,3 +127,50 @@ esac
     [archive] = (run / "attempts").iterdir()
     assert (archive / "update/receipt.json").exists()
     assert (archive / "launcher-exit.txt").read_text() == "1\n"
+
+
+def test_a_cycle_whose_deadline_passed_before_a_phase_exits_124_so_it_is_not_retried(tmp_path):
+    root = tmp_path / "runtime"
+    code = root / "training-code"
+    code.mkdir(parents=True)
+    write_host_settings(root)
+    run = root / "runs/test-cycle"
+    run.mkdir(parents=True)
+    for name in ("launch-cycle.sh", "launch-lib.sh", "cycle_recovery.py"):
+        shutil.copyfile(Path(__file__).with_name(name), code / name)
+    digest = hashlib.sha256((code / "launch-cycle.sh").read_bytes()).hexdigest()
+    (run / "SOURCE_SHA256SUMS").write_text(f"{digest}  launch-cycle.sh\n")
+    config = run / "config.json"
+    config.write_text("{}")
+    (run / "prepared.json").write_text("{}")
+    (run / "rollout").mkdir()
+    (run / "rollout/receipt.json").write_text('{"status": "versioned_rollout_saved"}')
+    (run / "grading").mkdir()
+    (run / "grading/rewards.json").write_text("[1, 0, 1, 0]")
+    executables = tmp_path / "bin"
+    executables.mkdir()
+    docker = executables / "docker"
+    docker.write_text("""#!/bin/bash
+case "$1" in
+run)
+  if [[ "$*" == *'cycle_contract settings'* ]]; then
+    printf '%s\\n' native rollout 1 10 false '"device=0"' '"device=0,1"'; exit 0
+  fi
+  exit 0;;
+# The deadline passes while the update's old container is removed.
+rm) sleep 2; exit 0;;
+stop|logs) exit 0;;
+inspect) echo '{}';;
+*) echo "unexpected docker $1" >&2; exit 99;;
+esac
+""")
+    docker.chmod(0o755)
+    result = subprocess.run(
+        ["bash", str(code / "launch-cycle.sh"), str(run), str(config), "--resume"],
+        env={**os.environ, "PATH": f"{executables}:{os.environ['PATH']}"},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 124, result.stderr
+    assert (run / "launcher-exit.txt").read_text().strip() == "124"
+    assert (run / "last-phase.txt").read_text().strip() == "update"
