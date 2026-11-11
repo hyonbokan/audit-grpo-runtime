@@ -34,8 +34,6 @@ PINNED_PACKAGES = (
 MODEL_CONTEXT_LIMIT = 262144
 # The projection chunk every accepted cycle used.
 PROJECTION_CHUNK = 32
-# Four equal rewards carry no advantage, so such a group gives no update.
-SKIP_UNINFORMATIVE_GROUPS = True
 LEDGER_NAMES = {
     "training": "judge-training.json",
     "validation": "judge-validation.json",
@@ -289,7 +287,6 @@ def cycle_config(
         "dataset_workspace": container(reviewed["launch"]["corpus"]),
         "judge_env_file": host["judge_env_file"],
         "policy_reasoning_effort": training["policy_reasoning_effort"],
-        "skip_uninformative_groups": SKIP_UNINFORMATIVE_GROUPS,
     }
 
 

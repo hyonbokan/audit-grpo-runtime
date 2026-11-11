@@ -306,7 +306,6 @@ def test_launcher_settings_cap_the_cycle_at_the_absolute_deadline(monkeypatch, n
         config["rollout_image"],
         str(seconds),
         str(config["judge_seconds_limit"]),
-        "false",
         '"device=0"',
         '"device=0"',
     ]
@@ -315,10 +314,9 @@ def test_launcher_settings_cap_the_cycle_at_the_absolute_deadline(monkeypatch, n
 def test_launcher_settings_report_a_passed_deadline_as_no_time_left(monkeypatch):
     freeze(monkeypatch, cycle_contract, "2026-10-12T00:00:00+00:00")
     config = schedule_cycle("medium-checkpoint-20261010")
-    config.update(absolute_deadline="2026-10-11T23:00:00+00:00", skip_uninformative_groups=True)
+    config.update(absolute_deadline="2026-10-11T23:00:00+00:00")
     settings = cycle_contract.launcher_settings(config)
     assert int(settings[2]) <= 0
-    assert settings[4] == "true"
 
 
 # --- GPU placement
@@ -347,7 +345,7 @@ def test_a_registered_split_is_validated_and_exposes_both_gpus_to_each_phase(
     assert config["engine"]["tensor_parallel_size"] == 2
     cycle_contract.validate_config(config)
     freeze(monkeypatch, cycle_contract, "2026-10-10T00:00:00+00:00")
-    assert cycle_contract.launcher_settings(config)[5:] == ['"device=0,1"', '"device=0,1"']
+    assert cycle_contract.launcher_settings(config)[4:] == ['"device=0,1"', '"device=0,1"']
 
 
 @pytest.mark.parametrize(

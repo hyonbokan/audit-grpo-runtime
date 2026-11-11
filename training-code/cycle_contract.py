@@ -325,7 +325,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def launcher_settings(config: dict[str, Any]) -> list[str]:
-    """Lines read by launch-cycle.sh: images, capped time limits, skip policy, phase GPUs."""
+    """Lines read by launch-cycle.sh: images, capped time limits, phase GPUs."""
     until_deadline = int(
         (datetime.fromisoformat(config["absolute_deadline"]) - datetime.now(UTC)).total_seconds()
     )
@@ -334,7 +334,6 @@ def launcher_settings(config: dict[str, Any]) -> list[str]:
         config["rollout_image"],
         str(min(config["seconds_limit"], until_deadline)),
         str(config["judge_seconds_limit"]),
-        str(config.get("skip_uninformative_groups", False)).lower(),
         docker_gpus(config["update_placement"]["gpus"]),
         docker_gpus(rollout_gpus(config["engine"])),
     ]

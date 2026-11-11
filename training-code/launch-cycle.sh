@@ -48,9 +48,8 @@ native_image=${values[0]}
 rollout_image=${values[1]}
 seconds=${values[2]}  # already capped at the absolute deadline
 judge_seconds=${values[3]}
-skip_uninformative=${values[4]}
-update_gpus=${values[5]}
-rollout_gpus=${values[6]}
+update_gpus=${values[4]}
+rollout_gpus=${values[5]}
 if ((seconds <= 0)); then echo "Absolute deadline has passed" >&2; exit 124; fi
 if ((!resume)); then
   docker run --rm --network none "${mounts[@]}" "${environment[@]}" "$native_image" \
@@ -112,13 +111,12 @@ if [[ ! -f "$run_root/grading/rewards.json" ]]; then
     --out "$container_out/grading" --plan "$container_out/judge-plan.json" --run-paid \
     --cache "$container_out/judge-cache" > "$run_root/grading.log" 2>&1
 fi
-if [[ "$skip_uninformative" == true ]]; then
-  decision=$(docker run --rm --network none "${mounts[@]}" "${environment[@]}" "$native_image" \
-    /opt/pilot/gpu/bin/python -m progress group-decision --config "$config" --out "$container_out")
-  if [[ "$decision" == skip_no_reward_contrast ]]; then
-    phase=skipped_no_reward_contrast
-    exit 0
-  fi
+# Equal rewards give no gradient; the update refuses them, so the visit records a skip.
+decision=$(docker run --rm --network none "${mounts[@]}" "${environment[@]}" "$native_image" \
+  /opt/pilot/gpu/bin/python -m progress group-decision --config "$config" --out "$container_out")
+if [[ "$decision" == skip_no_reward_contrast ]]; then
+  phase=skipped_no_reward_contrast
+  exit 0
 fi
 
 phase=update

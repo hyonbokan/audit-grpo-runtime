@@ -31,7 +31,7 @@ case "$1" in
 run)
   if [[ "$*" == *'cycle_contract settings'* ]]; then
     [[ "$*" == *'/run-config.json'* ]] || exit 93
-    printf '%s\\n' native rollout 20 10 false '"device=0"' '"device=0,1"'; exit 0
+    printf '%s\\n' native rollout 20 10 '"device=0"' '"device=0,1"'; exit 0
   fi
   for arg in "$@"; do
     if [[ "$arg" == --name ]]; then echo "GPU boundary failed $*"; exit 57; fi
@@ -96,7 +96,7 @@ case "$1" in
 run)
   [[ "$*" != *'cycle_contract prepare'* ]] || exit 94
   if [[ "$*" == *'cycle_contract settings'* ]]; then
-    printf '%s\\n' native rollout 20 10 false '"device=0"' '"device=0,1"'; exit 0
+    printf '%s\\n' native rollout 20 10 '"device=0"' '"device=0,1"'; exit 0
   fi
   for arg in "$@"; do
     if [[ "$arg" == --name ]]; then echo "GPU phase $*" >&2; exit 57; fi
@@ -154,7 +154,7 @@ def test_a_cycle_whose_deadline_passed_before_a_phase_exits_124_so_it_is_not_ret
 case "$1" in
 run)
   if [[ "$*" == *'cycle_contract settings'* ]]; then
-    printf '%s\\n' native rollout 1 10 false '"device=0"' '"device=0,1"'; exit 0
+    printf '%s\\n' native rollout 1 10 '"device=0"' '"device=0,1"'; exit 0
   fi
   exit 0;;
 # The deadline passes while the update's old container is removed.
@@ -209,3 +209,50 @@ def test_a_resume_with_changed_source_moves_no_evidence(tmp_path):
     after = sorted(str(path.relative_to(run)) for path in run.rglob("*"))
     assert after == sorted([*before, "source-verification.log"])
     assert (run / "launcher-exit.txt").read_text() == "57\n"
+
+
+def test_a_group_without_reward_contrast_is_decided_and_skipped_before_the_update(tmp_path):
+    root = tmp_path / "runtime"
+    code = root / "training-code"
+    code.mkdir(parents=True)
+    write_host_settings(root)
+    run = root / "runs/test-cycle"
+    run.mkdir(parents=True)
+    for name in ("launch-cycle.sh", "launch-lib.sh", "cycle_recovery.py"):
+        shutil.copyfile(Path(__file__).with_name(name), code / name)
+    digest = hashlib.sha256((code / "launch-cycle.sh").read_bytes()).hexdigest()
+    (run / "SOURCE_SHA256SUMS").write_text(f"{digest}  launch-cycle.sh\n")
+    config = run / "config.json"
+    config.write_text("{}")
+    (run / "prepared.json").write_text("{}")
+    (run / "rollout").mkdir()
+    (run / "rollout/receipt.json").write_text('{"status": "versioned_rollout_saved"}')
+    (run / "grading").mkdir()
+    (run / "grading/rewards.json").write_text("[0, 0, 0, 0]")
+    executables = tmp_path / "bin"
+    executables.mkdir()
+    docker = executables / "docker"
+    docker.write_text("""#!/bin/bash
+case "$1" in
+run)
+  if [[ "$*" == *'cycle_contract settings'* ]]; then
+    printf '%s\\n' native rollout 20 10 '"device=0"' '"device=0,1"'; exit 0
+  fi
+  if [[ "$*" == *'progress group-decision'* ]]; then echo skip_no_reward_contrast; exit 0; fi
+  [[ "$*" != *' --name '* ]] || { echo "GPU phase $*" >&2; exit 57; }
+  exit 0;;
+rm|stop|logs) exit 0;;
+inspect) echo '{}';;
+*) echo "unexpected docker $1" >&2; exit 99;;
+esac
+""")
+    docker.chmod(0o755)
+    result = subprocess.run(
+        ["bash", str(code / "launch-cycle.sh"), str(run), str(config), "--resume"],
+        env={**os.environ, "PATH": f"{executables}:{os.environ['PATH']}"},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert (run / "last-phase.txt").read_text().strip() == "skipped_no_reward_contrast"
+    assert not (run / "update.log").exists()
