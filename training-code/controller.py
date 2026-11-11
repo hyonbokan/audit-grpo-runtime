@@ -85,8 +85,6 @@ def phase_record_failure(config: dict, out: Path, attempts: int) -> list[str]:
 def phase_backup_due(config: dict, out: Path, _attempts: int) -> list[str]:
     """Whether enough visits passed since the last verified backup to upload another."""
     interval = scope(config)["storage"]["visit_backup_interval"]
-    if type(interval) is not int or interval < 1:
-        raise ValueError("storage.visit_backup_interval must be an integer of at least 1")
     visits = len(read_json(out / "state.json")["visits"])
     return [str(visits - backed_up_visits(out) >= interval).lower()]
 

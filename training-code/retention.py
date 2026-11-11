@@ -17,12 +17,7 @@ GIB = 2**30
 
 def prune_visits(state: dict, resume_states_kept: int, pinned_steps: list[int]) -> list[dict]:
     """Remove adapter copies everywhere and resume state outside the newest and pinned steps."""
-    if type(resume_states_kept) is not int or resume_states_kept < 1:
-        raise ValueError("storage.resume_states_kept must be an integer of at least 1")
-    if type(pinned_steps) is not list or any(
-        type(step) is not int or step < 1 for step in pinned_steps
-    ):
-        raise ValueError("storage.resume_steps_pinned must be a list of positive integers")
+    # schedules.scope validated the policy when the schedule loaded.
     removed = []
     for visit in state["visits"]:
         # The copy of the adapter that vLLM loaded; the rollout receipt keeps its hashes.
