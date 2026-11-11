@@ -104,7 +104,7 @@ phase=grading
 if [[ ! -f "$run_root/grading/rewards.json" ]]; then
   left=$(remaining)
   if ((judge_seconds > left)); then judge_seconds=$left; fi
-  sync_live_code
+  sync_live_code "$run_root/SOURCE_SHA256SUMS"
   live_exec timeout -k 10 "${judge_seconds}s" /opt/pilot/judge/bin/python \
     -m grpo.judge_worker \
     --samples "$container_out/rollout/samples.json" --split train \

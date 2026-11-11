@@ -89,7 +89,7 @@ for label in "${labels[@]}"; do
     --config "$container_out/$label-config.json" --out "$container_out/$label" \
     > "$run_root/$label.log" 2>&1
   phase="$label-grading"
-  sync_live_code
+  sync_live_code "$run_root/SOURCE_SHA256SUMS"
   left=$(remaining)
   limit=$judge_seconds
   if ((limit > left)); then limit=$left; fi

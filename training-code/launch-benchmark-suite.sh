@@ -83,7 +83,7 @@ timeout --foreground -k 10 "${left}s" docker run --name "$prefix-rollout" \
 
 # A project whose grading or comparison fails is recorded; the others still finish.
 phase=grading
-sync_live_code
+sync_live_code "$run_root/SOURCE_SHA256SUMS"
 for project in "${projects[@]}"; do
   host="$runtime_root/runs/$project"
   child="/results/$project"

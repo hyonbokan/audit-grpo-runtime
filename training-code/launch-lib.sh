@@ -1,9 +1,10 @@
 # Shared launcher pieces. Source after setting code_root and runtime_root.
 
 CPU_IMAGE=audit-grpo-deps:cu129-v1
-# Long-running judge/backup container that holds the credentials; code is copied in per phase.
+# Long-running judge/backup container that holds the credentials; sync_live_code copies the
+# launcher's source in and sets LIVE_CODE to that copy.
 LIVE_CONTAINER=audit-grpo-live
-LIVE_CODE=/opt/audit-grpo-training-code
+LIVE_CODE_ROOT=/opt/audit-grpo-training-code
 # The live container mounts the credentials here; run configs name it as judge_env_file.
 JUDGE_ENV=/opt/audit-grpo-secrets/judge.env
 # Frozen backend dependencies, configs and data mounted as /workspace.
@@ -110,10 +111,22 @@ record_containers() {
   done
 }
 
-# Copy the current code into the live container; run before live_exec, never concurrently.
+# Copy the launcher's source into the live container once per source identity ($1, the run's
+# verified SOURCE_SHA256SUMS) and verify the copy there; set LIVE_CODE to it. A copy is never
+# modified, so a running job keeps its code. Every step returns its status: callers run it on
+# the left of `||`, where errexit is off.
 sync_live_code() {
-  docker exec "$LIVE_CONTAINER" mkdir -p "$LIVE_CODE"
-  docker cp "$code_root/." "$LIVE_CONTAINER:$LIVE_CODE"
+  local sums=$1 identity staging
+  identity=$(sha256sum "$sums") || return
+  LIVE_CODE="$LIVE_CODE_ROOT/${identity:0:16}"
+  if docker exec "$LIVE_CONTAINER" test -d "$LIVE_CODE"; then return 0; fi
+  staging="$LIVE_CODE.$$.partial"
+  docker exec "$LIVE_CONTAINER" mkdir -p "$staging" || return
+  docker cp "$code_root/." "$LIVE_CONTAINER:$staging" || return
+  docker exec -i -w "$staging" "$LIVE_CONTAINER" sha256sum --check --quiet - < "$sums" || return
+  # Another launcher may have placed the same identity first; both copies are identical.
+  docker exec "$LIVE_CONTAINER" sh -c 'mv -T "$1" "$2" 2>/dev/null || rm -rf "$1"' _ \
+    "$staging" "$LIVE_CODE" || return
 }
 
 live_exec() {

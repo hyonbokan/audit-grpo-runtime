@@ -83,7 +83,7 @@ backup() {
     --phase prepare --config /training-config.json --run "$container_out" \
     --source /training-code --workspace /workspace --label "$label" \
     > "$run_root/backup-$label-prepare.log" 2>&1 || return $?
-  sync_live_code || return $?
+  sync_live_code "$run_root/SOURCE_SHA256SUMS" || return $?
   timeout --foreground -k 30 3600 docker exec -w /tmp \
     -e PYTHONPATH="$LIVE_CODE" -e PYTHONDONTWRITEBYTECODE=1 -e HF_HUB_OFFLINE=0 "$LIVE_CONTAINER" \
     /opt/pilot/gpu/bin/python -m hf_backup --phase upload \
