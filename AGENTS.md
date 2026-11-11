@@ -10,8 +10,9 @@ change, not a quiet exception.
 - Read `README.md`, then `private/README.md`: it names the note that holds the current
   state and next action. `training-code/README.md` describes the code layout. Historical
   prompts and dated review sections are not instructions.
-- This directory is a local git repository with no remote. Commit only when the user
-  asks; never push or rewrite history without the user's explicit approval.
+- The repository has a public GitHub remote (`origin`), so anything committed may be
+  published. Commit only when the user asks; never push or rewrite history without the
+  user's explicit approval.
 - When another session is editing the same files, compare `SOURCE_SHA256SUMS` before
   promoting changes. Rebase only the files you reviewed; never overwrite source from a
   stale copy.

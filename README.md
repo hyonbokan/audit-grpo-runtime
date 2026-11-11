@@ -164,7 +164,7 @@ restricted file outside it and name that file in the run config (`judge_env_file
 
 ## Version control
 
-This directory is a local git repository with no remote; the parent `ai-auditor`
+The repository has a public GitHub remote (`origin`); the parent `ai-auditor`
 repository ignores `backend/scripts/finetuning/`. [.gitignore](.gitignore) keeps out
 secrets, `private/`, `results/`, `runs/`, `workspace/`, model weights and archives, and logs.
 Check `git status --ignored` before any push.
