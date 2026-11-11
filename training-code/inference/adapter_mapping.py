@@ -1,11 +1,12 @@
 """Preserve native adapter values while naming the vLLM language-model path."""
 
-import hashlib
 import json
 import shutil
 
 import torch
 from safetensors.torch import load_file, save_file
+
+from runtime_io import sha256_file
 
 
 def prepare_adapter(source, destination):
@@ -30,12 +31,8 @@ def prepare_adapter(source, destination):
     receipt = {
         "tensor_count": len(original),
         "all_tensor_values_identical": True,
-        "native_sha256": hashlib.sha256(
-            (source / "adapter_model.safetensors").read_bytes()
-        ).hexdigest(),
-        "mapped_sha256": hashlib.sha256(
-            (destination / "adapter_model.safetensors").read_bytes()
-        ).hexdigest(),
+        "native_sha256": sha256_file(source / "adapter_model.safetensors"),
+        "mapped_sha256": sha256_file(destination / "adapter_model.safetensors"),
         "source": str(source),
         "destination": str(destination),
     }

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 from datetime import UTC, datetime
@@ -174,7 +173,7 @@ def prepare_cycle(config: dict[str, Any], out: Path) -> None:
     for name in RESUMABLE:
         if not (checkpoint / name).is_file():
             raise FileNotFoundError(checkpoint / name)
-    digest = hashlib.sha256((checkpoint / "adapter_model.safetensors").read_bytes()).hexdigest()
+    digest = sha256_file(checkpoint / "adapter_model.safetensors")
     if digest != config["initial_adapter_sha256"]:
         raise ValueError("Accepted source checkpoint identity differs")
     if (

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 from pathlib import Path
@@ -12,7 +11,7 @@ from typing import Any
 from grpo.corrected_loss import corrected_loss, support_logprobs
 from grpo.placement import hidden_on_head_device, layer_devices
 from progress import GROUP_SIZE
-from runtime_io import new_phase_dir
+from runtime_io import new_phase_dir, sha256_file
 
 
 def join_update_group(
@@ -175,9 +174,7 @@ def run_update(config: dict[str, Any], out: Path) -> dict[str, Any]:
         if config.get("policy_reasoning_effort"):
             validate_policy_profile(config, json.loads(Path(config["request"]).read_text()), plan)
             receipt["policy_reasoning_effort"] = config["policy_reasoning_effort"]
-        source_sha = hashlib.sha256(
-            (checkpoint / "adapter_model.safetensors").read_bytes()
-        ).hexdigest()
+        source_sha = sha256_file(checkpoint / "adapter_model.safetensors")
         expected_version = f"step-{config['initial_step']}:{source_sha}"
         samples = json.loads((out.parent / "rollout/samples.json").read_text())
         grades = json.loads((out.parent / "grading/rewards.json").read_text())

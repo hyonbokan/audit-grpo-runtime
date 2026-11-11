@@ -20,6 +20,7 @@ from benchmark_matching import judge_vote
 from grpo.budget import JudgeBudget, response_token_usage
 from grpo.judge_environment import judge_router_config
 from grpo.samples import write_new
+from runtime_io import sha256_file
 
 JUDGE_TIMEOUT_SECONDS = 180
 
@@ -218,7 +219,7 @@ class BenchmarkJudge:
                 folder / "replay.json",
                 {
                     "source": str(source),
-                    "raw_sha256": hashlib.sha256((source / "raw.json").read_bytes()).hexdigest(),
+                    "raw_sha256": sha256_file(source / "raw.json"),
                     "verdict": verdict,
                 },
             )

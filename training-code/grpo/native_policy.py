@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import importlib.metadata
 import json
 import random
@@ -10,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from grpo.placement import load_options
-from runtime_io import read_json
+from runtime_io import read_json, sha256_file
 
 
 def restore_optimizer(
@@ -212,7 +211,7 @@ def save_checkpoint(
     )
     destination.rename(final)
     destination = final
-    digest = hashlib.sha256((destination / "adapter_model.safetensors").read_bytes()).hexdigest()
+    digest = sha256_file(destination / "adapter_model.safetensors")
     return {
         "adapter_weights_changed": True,
         "optimizer_steps": steps,

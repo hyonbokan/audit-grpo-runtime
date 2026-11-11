@@ -1,6 +1,5 @@
 """Pinned worker-buffer inspection; private LoRA layout access stays here."""
 
-import hashlib
 import importlib.metadata
 import json
 from pathlib import Path
@@ -8,6 +7,7 @@ from typing import Any
 
 from safetensors.torch import load_file, save_file
 
+from runtime_io import sha256_file
 from transfer import merge_tensor_parallel, verify_transfer
 
 # Reviewed builds of the pinned release; the local tag names only the CUDA build.
@@ -155,7 +155,7 @@ def load_shard(reply: dict[str, Any]) -> dict[str, Any]:
 
 def source_adapter(path: Path, expected_sha: str) -> tuple[dict[str, Any], float, str]:
     require_pinned_vllm()
-    digest = hashlib.sha256((path / "adapter_model.safetensors").read_bytes()).hexdigest()
+    digest = sha256_file(path / "adapter_model.safetensors")
     if digest != expected_sha:
         raise ValueError("Worker source adapter identity differs")
     config = json.loads((path / "adapter_config.json").read_text())
