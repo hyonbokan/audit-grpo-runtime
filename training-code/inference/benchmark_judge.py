@@ -21,6 +21,8 @@ from grpo.budget import JudgeBudget, response_token_usage
 from grpo.judge_environment import judge_router_config
 from grpo.samples import write_new
 
+JUDGE_TIMEOUT_SECONDS = 180
+
 
 class MatchingVerdict(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -79,14 +81,15 @@ async def grade_benchmark(
         cap=config["judge_cap_usd"],
         operation_id=config["run_id"],
         operation_cap=config["judge_operation_cap_usd"],
-        model="gpt-6-luna",
+        model=config["benchmark_judge"]["model"],
     )
     router = await RecordedJudgeRouter.create(router_config)
     router.event_dir = out / "events"
     results = []
     started = time.monotonic()
     try:
-        judge = BenchmarkJudge(router, out, budget, replay_path=replay_path)
+        settings = config["benchmark_judge"]
+        judge = BenchmarkJudge(router, out, budget, settings=settings, replay_path=replay_path)
         semaphore = asyncio.Semaphore(config["grading_concurrency"])
         (out / "extraction").mkdir()
         extractor = BenchmarkJudge(
@@ -94,6 +97,7 @@ async def grade_benchmark(
             out / "extraction",
             budget,
             ExtractedReport,
+            settings=settings,
             replay_path=replay_path / "extraction" if replay_path else None,
         )
 
@@ -146,6 +150,8 @@ async def grade_benchmark(
 
 
 class BenchmarkJudge:
+    """One paid call per prompt, on the model and effort of the reviewed `benchmark_judge`."""
+
     def __init__(
         self,
         router: Any,
@@ -153,10 +159,12 @@ class BenchmarkJudge:
         budget: JudgeBudget,
         response_model: type[BaseModel] = MatchingVerdict,
         *,
+        settings: dict[str, Any],
         replay_path: Path | None = None,
     ):
         self.router, self.out, self.budget = router, out, budget
         self.response_model = response_model
+        self.settings = settings
         self.counter = 0
         self.reused = 0
         self.replay = {}
@@ -170,8 +178,8 @@ class BenchmarkJudge:
                     continue
                 request = json.loads((folder / "request.json").read_text())
                 if (
-                    request["model"] != "gpt-6-luna"
-                    or request["api_effort"] != "xhigh"
+                    request["model"] != settings["model"]
+                    or request["api_effort"] != settings["api_effort"]
                     or request["schema"] != response_model.model_json_schema()
                 ):
                     raise ValueError("Replay response contract differs")
@@ -193,14 +201,14 @@ class BenchmarkJudge:
         write_new(
             folder / "request.json",
             {
-                "model": "gpt-6-luna",
-                "effort": "max",
-                "api_effort": "xhigh",
+                "model": self.settings["model"],
+                "effort": self.settings["effort"],
+                "api_effort": self.settings["api_effort"],
                 "prompt": prompt,
                 "schema": schema,
                 "service_tier": "account_default",
-                "timeout_seconds": 180,
-                "retry_limit": 0,
+                "timeout_seconds": JUDGE_TIMEOUT_SECONDS,
+                "retry_limit": self.settings["retry_limit"],
             },
         )
         if self.replay.get(prompt):
@@ -223,15 +231,15 @@ class BenchmarkJudge:
             bound = len(prompt.encode()) + len(json.dumps(schema).encode()) + 8192
             reservation = self.budget.reserve(bound)
             write_new(folder / "reservation.json", {"id": reservation})
-            # Native UI "max" maps to API "xhigh". Runtime MAX would send a different effort.
+            # The API effort is named separately: native UI "max" is API "xhigh".
             result = await self.router.complete(
-                "gpt-6-luna",
+                self.settings["model"],
                 [{"role": "user", "content": prompt}],
                 response_model=self.response_model,
-                thinking_effort=ThinkingEffort.XHIGH,
+                thinking_effort=ThinkingEffort(self.settings["api_effort"]),
                 max_tokens=None,
-                timeout=180,
-                max_retries=0,
+                timeout=JUDGE_TIMEOUT_SECONDS,
+                max_retries=self.settings["retry_limit"],
             )
             raw = result.raw_response
             (folder / "raw.json").write_text(raw.model_dump_json(indent=2, warnings=False))
