@@ -41,8 +41,6 @@ def archive_failed_attempt(root: Path, config: dict) -> Path:
         raise ValueError("Resume requires a prepared cycle")
     if json.loads((root / "prepared.json").read_text()) != config:
         raise ValueError("Resume configuration differs from prepared.json")
-    if config.get("schedule"):
-        raise ValueError("Resume supports single-step cycles only")
     complete = completed_phases(root)
     attempts = root / "attempts"
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
