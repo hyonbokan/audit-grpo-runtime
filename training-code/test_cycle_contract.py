@@ -160,7 +160,13 @@ def cycle_fixture(tmp_path):
         path.write_text(json.dumps(value))
     checkpoint = tmp_path / f"update/checkpoint-{target}"
     checkpoint.mkdir()
-    for name in ("optimizer.pt", "rng_state.pth", "scheduler.pt", "trainer_state.json"):
+    for name in (
+        "adapter_config.json",
+        "optimizer.pt",
+        "rng_state.pth",
+        "scheduler.pt",
+        "trainer_state.json",
+    ):
         (checkpoint / name).touch()
     (checkpoint / "adapter_model.safetensors").write_bytes(SAVED_ADAPTER)
     return config, repeat

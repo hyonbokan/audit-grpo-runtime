@@ -12,6 +12,7 @@ from typing import Any
 
 import schedules
 from benchmark_free_text import SCOPE_PATH as BENCHMARK_SCOPE_PATH
+from checkpoint_files import RESUMABLE
 from grpo.placement import docker_gpus, load_options, rollout_gpus
 from progress import GROUP_SIZE
 from runtime_io import read_json, save_json, sha256_file
@@ -170,14 +171,7 @@ def prepare_cycle(config: dict[str, Any], out: Path) -> None:
     if (deadline - datetime.now(UTC)).total_seconds() < config["seconds_limit"]:
         raise ValueError("Insufficient remaining machine budget")
     checkpoint = Path(config["checkpoint"])
-    for name in (
-        "adapter_model.safetensors",
-        "adapter_config.json",
-        "optimizer.pt",
-        "scheduler.pt",
-        "rng_state.pth",
-        "trainer_state.json",
-    ):
+    for name in RESUMABLE:
         if not (checkpoint / name).is_file():
             raise FileNotFoundError(checkpoint / name)
     digest = hashlib.sha256((checkpoint / "adapter_model.safetensors").read_bytes()).hexdigest()
@@ -255,16 +249,7 @@ def finish_cycle(config: dict[str, Any], out: Path) -> dict[str, Any]:
         and update["correction_ess_fraction"] >= config["min_ess_fraction"],
         "changed_weights": update["adapter_weights_changed"],
         "optimizer_progress": update["optimizer_steps"] == [config["target_step"]],
-        "checkpoint_saved": all(
-            (checkpoint / name).is_file()
-            for name in (
-                "adapter_model.safetensors",
-                "optimizer.pt",
-                "rng_state.pth",
-                "scheduler.pt",
-                "trainer_state.json",
-            )
-        ),
+        "checkpoint_saved": all((checkpoint / name).is_file() for name in RESUMABLE),
         # vLLM's copy of this adapter is verified when the next visit's rollout loads it.
         "saved_adapter_identity": (checkpoint / "adapter_model.safetensors").is_file()
         and sha256_file(checkpoint / "adapter_model.safetensors") == update["adapter_sha256"]

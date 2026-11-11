@@ -5,7 +5,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from hf_backup import RESUME_ONLY_NAMES
+from checkpoint_files import RESUME_ONLY
 from runtime_io import read_json, save_json, utc_now
 
 MERGE_MANIFEST = "MERGE_MANIFEST.json"
@@ -30,7 +30,7 @@ def prune_visits(state: dict, resume_states_kept: int, pinned_steps: list[int]) 
     for step, update_root in checkpoints[:-resume_states_kept]:
         if step in pinned_steps:
             continue
-        for name in sorted(RESUME_ONLY_NAMES):
+        for name in sorted(RESUME_ONLY):
             removed += remove_file(update_root / f"checkpoint-{step}" / name)
     return removed
 

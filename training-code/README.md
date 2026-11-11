@@ -27,6 +27,7 @@ in `../private/` (not in git; start with its README).
 | `progress.py` | Training order and the update/skip decision. |
 | `hf_backup.py` | Verified private HF backups (thin every `visit_backup_interval` visits, full at start and end). |
 | `merge_checkpoint.py` | The final merge: a fresh BF16 model from the base and the adapter (BF16 operands, FP32 accumulation), every untouched tensor verified, `MERGE_MANIFEST.json` with source and output hashes. Never writes the checkpoint. |
+| `checkpoint_files.py` | The file names of a saved checkpoint: what a resume needs and what only a resume reads. |
 | `retention.py` | Disk retention: prunes resume state and adapter copies, releases evaluated merges, checks free space. |
 | `audited_corpus.py`, `corpus_*.py` | Builds the frozen training corpus from human-audit labels. |
 | `initial_checkpoint.py` | The step-0 checkpoint: base-equivalent adapter (B zero, A standard init), empty optimizer, resumable state files. |
