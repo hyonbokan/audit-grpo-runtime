@@ -111,22 +111,25 @@ record_containers() {
   done
 }
 
-# Copy the launcher's source into the live container once per source identity ($1, the run's
-# verified SOURCE_SHA256SUMS) and verify the copy there; set LIVE_CODE to it. A copy is never
-# modified, so a running job keeps its code. Every step returns its status: callers run it on
-# the left of `||`, where errexit is off.
+# Copy and verify the source in the live container once per identity ($1: the run's
+# SOURCE_SHA256SUMS) and set LIVE_CODE; a copy is never modified, so running jobs keep their code.
+# Each step returns its status, so it fails the same with or without errexit.
 sync_live_code() {
   local sums=$1 identity staging
   identity=$(sha256sum "$sums") || return
   LIVE_CODE="$LIVE_CODE_ROOT/${identity:0:16}"
   if docker exec "$LIVE_CONTAINER" test -d "$LIVE_CODE"; then return 0; fi
   staging="$LIVE_CODE.$$.partial"
-  docker exec "$LIVE_CONTAINER" mkdir -p "$staging" || return
-  docker cp "$code_root/." "$LIVE_CONTAINER:$staging" || return
-  docker exec -i -w "$staging" "$LIVE_CONTAINER" sha256sum --check --quiet - < "$sums" || return
+  if ! { docker exec "$LIVE_CONTAINER" mkdir -p "$staging" &&
+    docker cp "$code_root/." "$LIVE_CONTAINER:$staging" &&
+    docker exec -i -w "$staging" "$LIVE_CONTAINER" sha256sum --check --quiet - < "$sums"; }; then
+    docker exec "$LIVE_CONTAINER" rm -rf "$staging" || true
+    return 1
+  fi
   # Another launcher may have placed the same identity first; both copies are identical.
   docker exec "$LIVE_CONTAINER" sh -c 'mv -T "$1" "$2" 2>/dev/null || rm -rf "$1"' _ \
     "$staging" "$LIVE_CODE" || return
+  docker exec "$LIVE_CONTAINER" test -d "$LIVE_CODE"
 }
 
 live_exec() {
