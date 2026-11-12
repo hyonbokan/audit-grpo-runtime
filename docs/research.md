@@ -149,6 +149,18 @@ xhigh transfer benefit. Counts and acceptance measurements are in
 [research-data.md](research-data.md#9-matched-medium-evaluation-completed-2026-10-28);
 project-level results and immutable input identities remain in `private/`, `runs/` and `results/`.
 
+### 2.7 Steps 25 and 46: more updates did not help (2026-11-10)
+
+Figures are in [research-data.md](research-data.md#11-segments-2-and-3-checkpoint-history-and-visit-statistics-completed-2026-11-10).
+On the same matched medium benchmark the step-15 adapter has the most unique exact matches
+(19, base 13) and the best F1; step 25 (12) and step 46 (13) are not better than the base, and all
+three fail the acceptance gate. Over 179 visits only 26% updated the policy, mean group reward
+did not rise over the 87 visits of segment 3, and 58 of 96 rows never produced any reward.
+Revisiting all-zero rows made them informative about one time in eight. Reading: the reward is
+too sparse on most rows for more passes over the same pool to keep improving the policy, and
+the later updates fit noise from the few informative rows more than they add recall. This is an
+interpretation of one seed and four draws per project, not a tested cause.
+
 ## 3. Epochs, replay and resampling
 
 "Epoch" means two things in GRPO:
@@ -288,6 +300,9 @@ Set thresholds before collecting results.
 6. A larger-model replication only after an adequate small-model result.
 
 ## 7. Change log
+
+- 2026-11-10: recorded the step-25 and step-46 matched medium evaluations (both fail the gate),
+  the checkpoint history and the visit statistics across three segments (§2.7).
 
 - 2026-11-02: recorded the hypothesis and comparison protocol for previously flat rows on later
   passes, with a saved baseline; no second-pass effect had been measured at collection.

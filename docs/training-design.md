@@ -121,6 +121,22 @@ project mean; against the frozen medium base):
 
 A null result is reported, not extended.
 
+**Reporting rule.** Report detection per project as counts of unique ground-truth findings
+matched over the four draws, not as a percentage of recall: **exact**, **partial** and
+**exact + partial**, each out of the project's ground-truth total (e.g. 7 / 5 / 12 of 34). A
+finding that moves from partial to exact is a small win; a percentage of recall hides it. Show
+base and trained side by side, and keep unknown (ungraded) projects as unknown, never zero.
+
+Every evaluation report also carries a checkpoint-history table with one row per evaluated
+checkpoint, same columns, summed over the five projects (exact / partial-only / exact + partial
+of the pooled ground-truth total), plus the mean findings per draw. "Partial-only" is the unique
+findings matched partially but never exactly, so exact + partial is the union. Rows are
+comparable only when they share a frozen base and reasoning effort; say which base each row
+used, and do not line up rows that differ. A checkpoint evaluated at two efforts (step 15 at
+medium and xhigh) enters the history with its matched-medium row only; the xhigh evaluation is a
+separate transfer test and is reported on its own. The counts come from `unique_exact_gt` and
+`unique_exact_or_partial_gt` in `report.json`; `REPORT.md` still prints percentages.
+
 **Segments.** One `schedules.json` entry per segment: step 0 → 25 from a zero-initialised adapter,
 then → 50 and → 100 (25, 25 and 50 updates). The campaign ends at step 100; going further needs a
 new decision and a raised judge cap. At each pause: merge, evaluate, publish with
