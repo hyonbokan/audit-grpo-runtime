@@ -24,7 +24,11 @@ async def judge_vote(prompt: str, call: Judge) -> dict[str, Any]:
             # Transport owns failure/usage recording. Failed iterations do not cast votes.
             return None
 
-    first = await asyncio.gather(attempt(), attempt())
+    # Let both paid calls settle before a budget stop propagates, so neither is cancelled.
+    first = await asyncio.gather(attempt(), attempt(), return_exceptions=True)
+    for row in first:
+        if isinstance(row, BaseException):
+            raise row
     responses = [row for row in first if row is not None]
     if len(responses) == 2 and category(responses[0]) == category(responses[1]):
         return choose_vote(responses)

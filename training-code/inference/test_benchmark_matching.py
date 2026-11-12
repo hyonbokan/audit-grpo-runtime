@@ -128,3 +128,23 @@ def test_budget_exhaustion_in_a_vote_stops_grading_instead_of_losing_a_vote(fail
         asyncio.run(evaluate_findings([finding], [finding], "prompt", judge))
     # The first two iterations run together, so both are sent before the cap stops the vote.
     assert len(calls) == max(failing_call, 2)
+
+
+def test_budget_exhaustion_lets_the_vote_iteration_in_flight_finish():
+    from benchmark_matching import judge_vote
+    from grpo.budget import BudgetExhausted
+
+    calls, finished = [], []
+
+    async def call(prompt):
+        calls.append(prompt)
+        if len(calls) == 2:
+            raise BudgetExhausted("cap")
+        await asyncio.sleep(0.01)
+        finished.append(len(calls))
+        return verdict(exact=True)
+
+    with pytest.raises(BudgetExhausted, match="cap"):
+        asyncio.run(judge_vote("prompt", call))
+    # The paid call already sent settles and is saved before the cap stops grading.
+    assert finished == [2]
