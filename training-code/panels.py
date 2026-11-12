@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from benchmark_free_text import evaluation_row_ids, validate_config
+from checkpoint_files import ADAPTER
 from runtime_io import new_result_dir, read_json, save_json, sha256_file, utc_now
 from schedules import scope
 
@@ -28,7 +29,7 @@ def verify_merge(merged: Path, checkpoint: Path) -> None:
     manifest = read_json(merged / "MERGE_MANIFEST.json")
     if (
         manifest.get("status") != "merged_and_verified"
-        or manifest.get("adapter_sha256") != sha256_file(checkpoint / "adapter_model.safetensors")
+        or manifest.get("adapter_sha256") != sha256_file(checkpoint / ADAPTER)
         or not manifest.get("files")
     ):
         raise ValueError("Cached inference merge is incomplete or identifies different weights")

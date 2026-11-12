@@ -9,6 +9,7 @@ from typing import Any
 
 import benchmark_free_text as free_text
 from benchmark_contract import grading_input_hashes, load_assets
+from checkpoint_files import ADAPTER
 from generation import validate_request
 from grpo.samples import write_new
 from runtime_io import read_json, seconds_until, sha256_bytes, sha256_file
@@ -150,7 +151,7 @@ def verify_checkpoints(cases: list[dict[str, Any]]) -> None:
         if "checkpoint" not in case:
             continue
         checkpoint = Path(case["checkpoint"])
-        if sha256_file(checkpoint / "adapter_model.safetensors") != case["initial_adapter_sha256"]:
+        if sha256_file(checkpoint / ADAPTER) != case["initial_adapter_sha256"]:
             raise ValueError("Accepted checkpoint identity differs")
         if read_json(checkpoint / "trainer_state.json")["global_step"] != case["initial_step"]:
             raise ValueError("Checkpoint trainer state differs")

@@ -8,6 +8,7 @@ import random
 from pathlib import Path
 from typing import Any
 
+from checkpoint_files import ADAPTER
 from grpo.placement import load_options
 from runtime_io import read_json, sha256_file
 
@@ -116,9 +117,7 @@ def load_policy(
         random_state=config["seed"],
         target_modules=adapter_config["target_modules"],
     )
-    loaded = set_peft_model_state_dict(
-        model, load_file(str(checkpoint / "adapter_model.safetensors"))
-    )
+    loaded = set_peft_model_state_dict(model, load_file(str(checkpoint / ADAPTER)))
     if loaded.unexpected_keys:
         raise ValueError("Unexpected native adapter keys")
     if any(
@@ -211,7 +210,7 @@ def save_checkpoint(
     )
     destination.rename(final)
     destination = final
-    digest = sha256_file(destination / "adapter_model.safetensors")
+    digest = sha256_file(destination / ADAPTER)
     return {
         "adapter_weights_changed": True,
         "optimizer_steps": steps,

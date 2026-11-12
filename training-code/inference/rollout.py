@@ -12,6 +12,7 @@ from typing import Any
 import benchmark_free_text as free_text
 from adapter_compat import verify_tensor_parallel
 from adapter_mapping import prepare_adapter
+from checkpoint_files import ADAPTER
 from cycle_contract import validate_config, validate_policy_profile, write_event
 from generation import capture_batch, validate_request, validate_shared_engine
 from grpo.samples import capture_sample
@@ -105,9 +106,7 @@ def resolve_arm(phase: str, config: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Merged weights are evaluation-only")
     merged = bool(config.get("merged_model_path")) and not base
     checkpoint = None if base else Path(config["checkpoint"])
-    digest = (
-        sha256_file(checkpoint / "adapter_model.safetensors") if checkpoint is not None else None
-    )
+    digest = sha256_file(checkpoint / ADAPTER) if checkpoint is not None else None
     if not base and digest != config["initial_adapter_sha256"]:
         raise ValueError("Initial source checkpoint identity differs")
     version = f"base:{config['model_revision']}" if base else f"step-{step}:{digest}"

@@ -11,7 +11,7 @@ from typing import Any
 
 import schedules
 from benchmark_free_text import SCOPE_PATH as BENCHMARK_SCOPE_PATH
-from checkpoint_files import RESUMABLE
+from checkpoint_files import ADAPTER, RESUMABLE
 from grpo.placement import docker_gpus, load_options, rollout_gpus
 from progress import GROUP_SIZE
 from runtime_io import read_json, save_json, sha256_file
@@ -175,7 +175,7 @@ def prepare_cycle(config: dict[str, Any], out: Path) -> None:
     for name in RESUMABLE:
         if not (checkpoint / name).is_file():
             raise FileNotFoundError(checkpoint / name)
-    digest = sha256_file(checkpoint / "adapter_model.safetensors")
+    digest = sha256_file(checkpoint / ADAPTER)
     if digest != config["initial_adapter_sha256"]:
         raise ValueError("Accepted source checkpoint identity differs")
     if (
@@ -252,8 +252,8 @@ def finish_cycle(config: dict[str, Any], out: Path) -> dict[str, Any]:
         "optimizer_progress": update["optimizer_steps"] == [config["target_step"]],
         "checkpoint_saved": all((checkpoint / name).is_file() for name in RESUMABLE),
         # vLLM's copy of this adapter is verified when the next visit's rollout loads it.
-        "saved_adapter_identity": (checkpoint / "adapter_model.safetensors").is_file()
-        and sha256_file(checkpoint / "adapter_model.safetensors") == update["adapter_sha256"]
+        "saved_adapter_identity": (checkpoint / ADAPTER).is_file()
+        and sha256_file(checkpoint / ADAPTER) == update["adapter_sha256"]
         and update["weight_version"] == f"step-{config['target_step']}:{update['adapter_sha256']}",
         "weight_version_chain": update["weight_version"] != source["weight_version"]
         and update["source_weight_version"] == source["weight_version"]

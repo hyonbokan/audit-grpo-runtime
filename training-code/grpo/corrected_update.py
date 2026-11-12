@@ -8,6 +8,7 @@ import math
 from pathlib import Path
 from typing import Any
 
+from checkpoint_files import ADAPTER
 from grpo.corrected_loss import corrected_loss, support_logprobs
 from grpo.placement import hidden_on_head_device, layer_devices
 from progress import GROUP_SIZE
@@ -174,7 +175,7 @@ def run_update(config: dict[str, Any], out: Path) -> dict[str, Any]:
         if config.get("policy_reasoning_effort"):
             validate_policy_profile(config, json.loads(Path(config["request"]).read_text()), plan)
             receipt["policy_reasoning_effort"] = config["policy_reasoning_effort"]
-        source_sha = sha256_file(checkpoint / "adapter_model.safetensors")
+        source_sha = sha256_file(checkpoint / ADAPTER)
         expected_version = f"step-{config['initial_step']}:{source_sha}"
         samples = json.loads((out.parent / "rollout/samples.json").read_text())
         grades = json.loads((out.parent / "grading/rewards.json").read_text())
@@ -191,7 +192,7 @@ def run_update(config: dict[str, Any], out: Path) -> dict[str, Any]:
             if config.get("schedule_id")
             else None
         )
-        before = load_file(str(checkpoint / "adapter_model.safetensors"))
+        before = load_file(str(checkpoint / ADAPTER))
         receipt["layer_devices"] = layer_devices(layers)
         embedding = config["update_placement"]["embedding"]
         receipt["embedding_placement"] = embedding

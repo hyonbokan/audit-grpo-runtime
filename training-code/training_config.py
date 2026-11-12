@@ -14,6 +14,7 @@ from typing import Any
 import initial_checkpoint
 import schedules
 from benchmark_free_text import SCOPE_PATH as BENCHMARK_SCOPE_PATH
+from checkpoint_files import ADAPTER
 from cycle_contract import SCOPE_PATH as CYCLE_SCOPE_PATH
 from runtime_io import read_json, save_json, sha256_file
 
@@ -163,7 +164,7 @@ def start_checkpoint(reviewed: dict[str, Any], results: Path) -> tuple[str, str]
     step = read_json(checkpoint / "trainer_state.json")["global_step"]
     if step != training["initial_step"]:
         raise ValueError(f"Start checkpoint is at step {step}, not {training['initial_step']}")
-    return container(relative), sha256_file(checkpoint / "adapter_model.safetensors")
+    return container(relative), sha256_file(checkpoint / ADAPTER)
 
 
 def campaign_ledgers(reviewed: dict[str, Any], results: Path) -> dict[str, str]:

@@ -13,6 +13,7 @@ import torch
 from safetensors import safe_open
 from safetensors.torch import load_file, save_file
 
+from checkpoint_files import ADAPTER
 from runtime_io import read_json, save_json, sha256_file
 
 
@@ -41,7 +42,7 @@ def merge_checkpoint(base: Path, adapter: Path, output: Path, revision: str) -> 
     if rank <= 0:
         raise ValueError("Adapter rank must be positive")
     scale = config["lora_alpha"] / rank
-    adapter_weights = adapter / "adapter_model.safetensors"
+    adapter_weights = adapter / ADAPTER
     adapter_digest = sha256_file(adapter_weights)
     state = load_file(str(adapter_weights))
     prefix = "base_model.model.model.layers."
