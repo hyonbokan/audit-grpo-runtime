@@ -31,11 +31,13 @@ cp SOURCE_SHA256SUMS "$run_root/"
 # The hashes say what ran; the commit and any uncommitted change say where it came from.
 if commit=$(git -C "$runtime_root" rev-parse HEAD 2>/dev/null); then
   printf '%s\n' "$commit" > "$run_root/source-commit.txt"
-  { git -C "$runtime_root" status --porcelain=v1 -- training-code
+  { git -C "$runtime_root" status --porcelain=v1 --ignored -- training-code
     git -C "$runtime_root" diff HEAD -- training-code
-    # A hashed file git does not track runs too: record its whole content.
+    # A hashed file git does not track runs too: record its content, unless it is ignored
+    # (possibly private), which the status above lists by name only.
     while read -r _ name; do
       git ls-files --error-unmatch -- "$name" > /dev/null 2>&1 ||
+        git check-ignore -q -- "$name" ||
         git diff --no-index -- /dev/null "$name" || true
     done < SOURCE_SHA256SUMS; } > "$run_root/source-uncommitted.diff"
 else

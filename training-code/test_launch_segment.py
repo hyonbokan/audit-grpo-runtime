@@ -31,6 +31,8 @@ def test_a_started_run_records_the_commit_and_uncommitted_changes_it_froze(tmp_p
     ).stdout.strip()
     (code / "schedules.json").write_text('{"registered": "since the commit"}\n')
     (code / "new_module.py").write_text("VALUE = 1\n")  # hashed and run, never committed
+    (root / ".gitignore").write_text("local.json\n")
+    (code / "local.json").write_text('{"token": "never-recorded"}\n')  # ignored: name only
     executables = tmp_path / "bin"
     executables.mkdir()
     docker = executables / "docker"
@@ -49,4 +51,5 @@ def test_a_started_run_records_the_commit_and_uncommitted_changes_it_froze(tmp_p
     diff = (run / "source-uncommitted.diff").read_text()
     assert '+{"registered": "since the commit"}' in diff
     assert "+VALUE = 1" in diff
+    assert "!! training-code/local.json" in diff and "never-recorded" not in diff
     assert "SOURCE_SHA256SUMS" in diff
