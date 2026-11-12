@@ -87,6 +87,18 @@ def test_engine_memory_allocation_is_the_reviewed_one(change):
         cycle_contract.validate_config(config)
 
 
+def test_a_reviewed_sampling_n_other_than_the_group_size_is_refused(tmp_path, monkeypatch):
+    config = schedule_cycle(DAY)
+    scope = json.loads(cycle_contract.SCOPE_PATH.read_text())
+    scope["sampling"]["n"] = 5
+    changed = tmp_path / "cycle_scope.json"
+    changed.write_text(json.dumps(scope))
+    monkeypatch.setattr(cycle_contract, "SCOPE_PATH", changed)
+    config["sampling"]["n"] = 5
+    with pytest.raises(ValueError, match="group size"):
+        cycle_contract.validate_config(config)
+
+
 @pytest.mark.parametrize("schedule_id", [None, "continuation-expanded-20261009"])
 def test_a_cycle_must_name_a_registered_schedule(schedule_id):
     config = schedule_cycle(DAY)

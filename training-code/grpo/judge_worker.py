@@ -20,10 +20,11 @@ from grpo.judge_cache import CachedJudge
 from grpo.judge_environment import judge_router_config
 from grpo.measurement import group_metrics
 from grpo.samples import write_new
+from progress import GROUP_SIZE
 from runtime_io import new_phase_dir, read_json
 
-# One router slot per draw: the group's four draws are graded together.
-GRADING_CONCURRENCY = 4
+# One router slot per draw: every draw of a group is graded together.
+GRADING_CONCURRENCY = GROUP_SIZE
 
 
 def main(argv=None):

@@ -91,6 +91,8 @@ def validate_config(config: dict[str, Any]) -> None:
     if config.get("policy_reasoning_effort") != limits["policy_reasoning_effort"]:
         raise ValueError("Policy reasoning effort differs from reviewed scope")
     required = read_json(SCOPE_PATH)
+    if required["sampling"]["n"] != GROUP_SIZE:
+        raise ValueError(f"Reviewed sampling n must be the group size {GROUP_SIZE}")
     required["engine"].update(
         max_model_len=context, gpu_memory_utilization=limits["gpu_memory_utilization"]
     )
