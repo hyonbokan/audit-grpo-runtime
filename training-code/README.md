@@ -154,9 +154,10 @@ Nothing has to be cleaned by hand during a run; the policy is `storage` in `sche
 
 - Training grades with the evaluation's judge path (`inference/benchmark_judge.py`): one
   extraction call per draw, then 3-vote one-to-one matching, all on the judge in
-  `benchmark_scope.json`. A failed call casts no vote; a draw with an unknown grade makes the
-  worker regrade the whole group once from the cache, and a group still unknown is withheld
-  (the visit fails). A draw that hit the length cap scores 0 and is never judged. Budget
+  `benchmark_scope.json`, whose `iterations`, `batch_size` and `retry_limit` (0) must match
+  what the matcher runs or the judge refuses to start. A failed call casts no vote; a draw
+  with an unknown grade makes the worker regrade the whole group once from the cache, and a
+  group still unknown is withheld (the visit fails). A draw that hit the length cap scores 0 and is never judged. Budget
   exhaustion stops grading.
 - Paid responses are cached per visit in `judge-cache/`, so a regraded or resumed group
   pays only for calls that never completed.

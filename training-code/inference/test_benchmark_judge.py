@@ -447,7 +447,7 @@ def test_the_judge_calls_the_model_and_effort_its_settings_name(tmp_path):
     from benchmark_judge import BenchmarkJudge, MatchingVerdict
     from grpo.budget import JudgeBudget
 
-    settings = {"model": "gpt-6.1-sol", "effort": "high", "api_effort": "high", "retry_limit": 0}
+    settings = {**JUDGE_SETTINGS, "model": "gpt-6.1-sol", "effort": "high", "api_effort": "high"}
     calls = []
 
     class RouterBoundary:
@@ -472,3 +472,28 @@ def test_the_judge_calls_the_model_and_effort_its_settings_name(tmp_path):
         "high",
         "high",
     )
+
+
+@pytest.mark.parametrize(
+    "change,message",
+    [
+        ({"iterations": 5}, "votes"),
+        ({"batch_size": 20}, "batches"),
+        ({"retry_limit": 1}, "reservation"),
+        ({"api_effort": "extreme"}, "xhigh"),
+    ],
+)
+def test_a_judge_block_the_grader_cannot_honour_fails_before_any_reservation(
+    tmp_path, change, message
+):
+    from benchmark_judge import BenchmarkJudge
+    from grpo.budget import JudgeBudget
+
+    class NoApi:
+        async def complete(self, *args, **options):
+            raise AssertionError("no call expected")
+
+    budget = JudgeBudget(tmp_path / "ledger.json", cap=150, operation_id="test", operation_cap=10)
+    # Refused when the judge is built, so no prompt is ever reserved against the budget.
+    with pytest.raises(ValueError, match=message):
+        BenchmarkJudge(NoApi(), tmp_path, budget, settings={**JUDGE_SETTINGS, **change})

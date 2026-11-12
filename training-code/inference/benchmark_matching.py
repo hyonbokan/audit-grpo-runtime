@@ -12,6 +12,8 @@ from grpo.budget import BudgetExhausted
 
 Judge = Callable[[str], Awaitable[dict[str, Any]]]
 BATCH_SIZE = 30
+# judge_vote: two calls, and a third only when they disagree.
+VOTE_ITERATIONS = 3
 
 
 async def judge_vote(prompt: str, call: Judge) -> dict[str, Any]:

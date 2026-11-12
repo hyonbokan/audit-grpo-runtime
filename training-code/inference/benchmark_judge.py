@@ -16,7 +16,7 @@ from scripts.finetuning.tools.pilot_transport import CURRENT_JOB, RecordedJudgeR
 
 import benchmark_free_text as free_text
 from benchmark_contract import grading_input_hashes
-from benchmark_matching import judge_vote
+from benchmark_matching import BATCH_SIZE, VOTE_ITERATIONS, judge_vote
 from grpo.budget import JudgeBudget, response_token_usage
 from grpo.judge_environment import judge_router_config
 from grpo.samples import write_new
@@ -163,6 +163,7 @@ class BenchmarkJudge:
         settings: dict[str, Any],
         replay_path: Path | None = None,
     ):
+        validate_settings(settings)
         self.router, self.out, self.budget = router, out, budget
         self.response_model = response_model
         self.settings = settings
@@ -250,7 +251,7 @@ class BenchmarkJudge:
                 "resolved_model": raw.model,
                 "status": raw.status,
                 "seconds": time.monotonic() - started,
-                "estimate_basis": "Luna Standard; conservative ledger includes uplifts",
+                "estimate_basis": f"{self.settings['model']} standard rates; ledger adds uplifts",
             }
             write_new(folder / "usage.json", usage)
             self.budget.settle(reservation, usage if raw.usage is not None else None)
@@ -277,3 +278,20 @@ class BenchmarkJudge:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def validate_settings(settings: dict[str, Any]) -> None:
+    """Refuse a reviewed judge block that grading would not run as written."""
+    if settings["iterations"] != VOTE_ITERATIONS:
+        raise ValueError(
+            f"benchmark_judge.iterations must be {VOTE_ITERATIONS}: the matcher's votes"
+        )
+    if settings["batch_size"] != BATCH_SIZE:
+        raise ValueError(f"benchmark_judge.batch_size must be {BATCH_SIZE}: the matcher's batches")
+    if settings["retry_limit"] != 0:
+        raise ValueError("benchmark_judge.retry_limit must be 0: one reservation covers one call")
+    allowed = [effort.value for effort in ThinkingEffort]
+    if settings["api_effort"] not in allowed:
+        raise ValueError(
+            f"Unknown benchmark_judge.api_effort {settings['api_effort']!r}; {allowed}"
+        )
