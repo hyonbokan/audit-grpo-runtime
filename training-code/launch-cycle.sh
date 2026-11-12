@@ -17,7 +17,11 @@ if [[ "${3:-}" == --resume ]]; then resume=1; elif [[ -n "${3:-}" ]]; then echo 
 }
 # Verify the source before moving any earlier attempt's evidence.
 cd -- "$code_root"
-sha256sum --check "$run_root/SOURCE_SHA256SUMS" > "$run_root/source-verification.log"
+if ! sha256sum --check "$run_root/SOURCE_SHA256SUMS" > "$run_root/source-verification.log"; then
+  # This attempt's outcome; the earlier attempt's exit files stay as they were.
+  printf '1\n' > "$run_root/source-refused.txt"
+  exit 1
+fi
 if ((resume)); then
   # Archive the failed attempt's logs and incomplete phases; completed phases are reused.
   [[ -f "$run_root/prepared.json" ]] || { echo "Resume requires a prepared cycle" >&2; exit 2; }
@@ -27,11 +31,12 @@ else
     echo "Cycle already prepared; continue it with --resume" >&2
     exit 2
   }
-  if [[ -e "$run_root/launcher-exit.txt" ]]; then
+  if [[ -e "$run_root/launcher-exit.txt" || -e "$run_root/source-refused.txt" ]]; then
     # An earlier attempt stopped before preparation; keep its exit record as evidence.
     archive="$run_root/attempts/$(date -u +%Y%m%dT%H%M%SZ)-unprepared"
     mkdir -p "$archive"
-    mv "$run_root/launcher-exit.txt" "$run_root/last-phase.txt" "$archive/" 2>/dev/null || true
+    mv "$run_root/launcher-exit.txt" "$run_root/last-phase.txt" "$run_root/source-refused.txt" \
+      "$archive/" 2>/dev/null || true
   fi
 fi
 source "$code_root/launch-lib.sh"

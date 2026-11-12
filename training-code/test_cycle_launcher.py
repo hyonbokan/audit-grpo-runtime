@@ -207,8 +207,9 @@ def test_a_resume_with_changed_source_moves_no_evidence(tmp_path):
     assert result.returncode == 1, result.stderr
     assert "did NOT match" in result.stderr
     after = sorted(str(path.relative_to(run)) for path in run.rglob("*"))
-    assert after == sorted([*before, "source-verification.log"])
+    assert after == sorted([*before, "source-verification.log", "source-refused.txt"])
     assert (run / "launcher-exit.txt").read_text() == "57\n"
+    assert (run / "source-refused.txt").read_text() == "1\n"
 
 
 def test_a_group_without_reward_contrast_is_decided_and_skipped_before_the_update(tmp_path):

@@ -239,6 +239,21 @@ def test_failed_visit_keeps_checkpoint_and_repeated_failures_stop_training(tmp_p
     assert controller.can_start_group(state, 50000, WEEKEND) is False
 
 
+def test_a_visit_refused_at_source_verification_is_not_recorded_as_the_previous_attempt(tmp_path):
+    state = {"visits": [], "current_step": 3, "current_checkpoint": "cp3"}
+    (tmp_path / "launcher-exit.txt").write_text("57\n")
+    (tmp_path / "last-phase.txt").write_text("update\n")
+    (tmp_path / "cycle-seconds.txt").write_text("900\n")
+    (tmp_path / "source-refused.txt").write_text("1\n")
+    controller.record_failed_visit(state, tmp_path, attempts=2)
+    visit = state["visits"][0]
+    assert (visit["last_phase"], visit["exit_status"], visit["seconds"]) == (
+        "source-verification",
+        "1",
+        0,
+    )
+
+
 def test_next_cycle_resumes_an_unrecorded_pending_visit(tmp_path, monkeypatch):
     roomy_disk(monkeypatch, 1000)
     pending = str(tmp_path / "run-visit-002")
