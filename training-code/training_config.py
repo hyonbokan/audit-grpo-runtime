@@ -14,6 +14,7 @@ from typing import Any
 import initial_checkpoint
 import schedules
 from benchmark_free_text import SCOPE_PATH as BENCHMARK_SCOPE_PATH
+from checkpoint_files import ADAPTER
 from cycle_contract import SCOPE_PATH as CYCLE_SCOPE_PATH
 from runtime_io import read_json, save_json, sha256_file
 
@@ -34,8 +35,6 @@ PINNED_PACKAGES = (
 MODEL_CONTEXT_LIMIT = 262144
 # The projection chunk every accepted cycle used.
 PROJECTION_CHUNK = 32
-# Four equal rewards carry no advantage, so such a group gives no update.
-SKIP_UNINFORMATIVE_GROUPS = True
 LEDGER_NAMES = {
     "training": "judge-training.json",
     "validation": "judge-validation.json",
@@ -165,7 +164,7 @@ def start_checkpoint(reviewed: dict[str, Any], results: Path) -> tuple[str, str]
     step = read_json(checkpoint / "trainer_state.json")["global_step"]
     if step != training["initial_step"]:
         raise ValueError(f"Start checkpoint is at step {step}, not {training['initial_step']}")
-    return container(relative), sha256_file(checkpoint / "adapter_model.safetensors")
+    return container(relative), sha256_file(checkpoint / ADAPTER)
 
 
 def campaign_ledgers(reviewed: dict[str, Any], results: Path) -> dict[str, str]:
@@ -289,7 +288,6 @@ def cycle_config(
         "dataset_workspace": container(reviewed["launch"]["corpus"]),
         "judge_env_file": host["judge_env_file"],
         "policy_reasoning_effort": training["policy_reasoning_effort"],
-        "skip_uninformative_groups": SKIP_UNINFORMATIVE_GROUPS,
     }
 
 

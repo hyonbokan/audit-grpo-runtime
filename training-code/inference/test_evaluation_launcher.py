@@ -59,7 +59,7 @@ run)
   exit 0;;
 inspect) echo '{{"Status":"exited","ExitCode":57}}';;
 logs) echo 'generation failed';;
-stop) exit 0;;
+stop|exec|cp) exit 0;;
 *) echo 'unexpected phase' >&2; exit 99;;
 esac
 """
@@ -120,3 +120,21 @@ exit 0
     assert completed.returncode == 61
     assert (run / "launcher-exit.txt").read_text().strip() == "61"
     assert not (run / "comparison.log").exists()
+
+
+def test_an_unavailable_live_container_stops_the_evaluation_before_any_generation(tmp_path):
+    docker = f"""#!/bin/bash
+{settings("serial")}
+case "$1" in
+exec) exit 1;;
+run)
+  for arg in "$@"; do
+    if [[ "$arg" == --name ]]; then echo 'generation ran'; exit 0; fi
+  done
+  exit 0;;
+*) exit 0;;
+esac
+"""
+    completed, run = launch(tmp_path, docker)
+    assert completed.returncode != 0
+    assert not (run / "base.log").exists()

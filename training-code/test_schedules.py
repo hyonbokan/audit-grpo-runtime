@@ -12,6 +12,14 @@ from testing.cycles import schedule_cycle
 REGISTERED = sorted(json.loads(schedules.REGISTRY.read_text())["schedules"])
 
 
+STORAGE = {
+    "resume_states_kept": 2,
+    "resume_steps_pinned": [],
+    "minimum_free_gib": 80,
+    "visit_backup_interval": 5,
+}
+
+
 @pytest.fixture
 def registry(tmp_path, monkeypatch):
     path = tmp_path / "schedules.json"
@@ -21,6 +29,7 @@ def registry(tmp_path, monkeypatch):
                 "defaults": {
                     "maximum_context": 1000,
                     "training": {"seconds_limit": 10800, "policy_reasoning_effort": "medium"},
+                    "storage": STORAGE,
                 },
                 "schedules": {
                     "short": {"training": {"initial_step": 5, "maximum_step": 7}},
@@ -30,6 +39,35 @@ def registry(tmp_path, monkeypatch):
         )
     )
     monkeypatch.setattr(schedules, "REGISTRY", path)
+
+
+@pytest.mark.parametrize(
+    "key,value",
+    [
+        ("resume_states_kept", 0),
+        ("resume_states_kept", -1),
+        ("resume_states_kept", True),
+        ("resume_states_kept", 1.5),
+        ("resume_steps_pinned", [0]),
+        ("resume_steps_pinned", [-1]),
+        ("resume_steps_pinned", [True]),
+        ("resume_steps_pinned", [1.5]),
+        ("resume_steps_pinned", "25"),
+        ("minimum_free_gib", -1),
+        ("minimum_free_gib", "80"),
+        ("visit_backup_interval", 0),
+        ("visit_backup_interval", 2.5),
+    ],
+)
+def test_an_invalid_storage_policy_is_refused_when_the_schedule_loads(
+    registry, monkeypatch, key, value
+):
+    data = json.loads(schedules.REGISTRY.read_text())
+    data["schedules"]["short"]["storage"] = {key: value}
+    schedules.REGISTRY.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match=f"storage.{key}"):
+        schedules.schedule("short")
+    assert schedules.schedule("long")["storage"] == STORAGE
 
 
 def test_override_replaces_only_the_fields_it_names(registry):

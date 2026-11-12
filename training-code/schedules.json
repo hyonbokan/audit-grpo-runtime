@@ -220,7 +220,7 @@
     },
     "free-text-seg3-20261102": {
       "training_cutoff": "2026-11-09T12:00:00+00:00",
-      "final_deadline": "2026-11-10T06:00:00+00:00",
+      "final_deadline": "2026-11-10T22:00:00+00:00",
       "maximum_context": 65536,
       "judge_cap_usd": 120,
       "launch": {

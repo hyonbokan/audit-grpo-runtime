@@ -13,6 +13,9 @@ if [[ "${3:-}" == --resume ]]; then resume=1; elif [[ -n "${3:-}" ]]; then echo 
   echo "The run must be under $runtime_root/runs and its config inside the run directory" >&2
   exit 2
 }
+# Verify the source before moving any earlier attempt's evidence.
+cd -- "$code_root"
+sha256sum --check "$run_root/SOURCE_SHA256SUMS" > "$run_root/source-verification.log"
 if ((resume)); then
   # Resume training from state.json: accepted visits are kept and an unrecorded
   # pending visit continues in place. Finished training is not re-entered.
@@ -31,8 +34,6 @@ else
     exit 2
   }
 fi
-cd -- "$code_root"
-sha256sum --check "$run_root/SOURCE_SHA256SUMS" > "$run_root/source-verification.log"
 source "$code_root/launch-lib.sh"
 container_out="/results/$(basename -- "$run_root")"
 pythonpath=/training-code:/training-code/inference:/workspace/code/backend
@@ -40,7 +41,7 @@ pythonpath=/training-code:/training-code/inference:/workspace/code/backend
 controller_mounts=(-v "$code_root:/training-code:ro" -v "$runtime_root:$runtime_root"
   -v "$runtime_root/runs:/results" -v "$FROZEN_WORKSPACE:/workspace:ro"
   -v "$CACHE:$CACHE" -v "$CACHE:/workspace/cache"
-  -v "$config:/training-config.json:ro" -v "$runtime_root/diagnostic-tools:/diagnostic-tools:ro")
+  -v "$config:/training-config.json:ro")
 cpu() {
   docker run --rm --network none "${controller_mounts[@]}" -e "PYTHONPATH=$pythonpath" \
     -e PYTHONDONTWRITEBYTECODE=1 -e HF_HUB_OFFLINE=1 -e OMP_NUM_THREADS=1 \
@@ -82,7 +83,7 @@ backup() {
     --phase prepare --config /training-config.json --run "$container_out" \
     --source /training-code --workspace /workspace --label "$label" \
     > "$run_root/backup-$label-prepare.log" 2>&1 || return $?
-  sync_live_code || return $?
+  sync_live_code "$run_root/SOURCE_SHA256SUMS" || return $?
   timeout --foreground -k 30 3600 docker exec -w /tmp \
     -e PYTHONPATH="$LIVE_CODE" -e PYTHONDONTWRITEBYTECODE=1 -e HF_HUB_OFFLINE=0 "$LIVE_CONTAINER" \
     /opt/pilot/gpu/bin/python -m hf_backup --phase upload \
@@ -125,7 +126,7 @@ merge() {
   revision=$(json_value "$config" cycle model_revision)
   timeout --foreground -k 30 3600 docker run --rm --network none --cpus 8 --memory 128g \
     "${controller_mounts[@]}" -e OMP_NUM_THREADS=8 "$CPU_IMAGE" \
-    /opt/pilot/gpu/bin/python /diagnostic-tools/merge_checkpoint.py \
+    /opt/pilot/gpu/bin/python /training-code/merge_checkpoint.py \
     --base "$base" --adapter "$adapter" --output "$output" --revision "$revision" \
     >> "$run_root/merge.log" 2>&1
 }

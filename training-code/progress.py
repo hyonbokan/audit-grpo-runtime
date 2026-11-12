@@ -10,6 +10,7 @@ from typing import Any
 
 from runtime_io import read_json, save_json, sha256_file
 
+# Draws per GRPO group: the reviewed sampling n, the reward contract and every acceptance check.
 GROUP_SIZE = 4
 
 

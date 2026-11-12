@@ -26,6 +26,8 @@ in `../private/` (not in git; start with its README).
 | `frozen_requests.py` | Freezes each training row's prompt tokens for a run. |
 | `progress.py` | Training order and the update/skip decision. |
 | `hf_backup.py` | Verified private HF backups (thin every `visit_backup_interval` visits, full at start and end). |
+| `merge_checkpoint.py` | The final merge: a fresh BF16 model from the base and the adapter (BF16 operands, FP32 accumulation), every untouched tensor verified, `MERGE_MANIFEST.json` with source and output hashes. Never writes the checkpoint. |
+| `checkpoint_files.py` | The file names of a saved checkpoint: what a resume needs and what only a resume reads. |
 | `retention.py` | Disk retention: prunes resume state and adapter copies, releases evaluated merges, checks free space. |
 | `audited_corpus.py`, `corpus_*.py` | Builds the frozen training corpus from human-audit labels. |
 | `initial_checkpoint.py` | The step-0 checkpoint: base-equivalent adapter (B zero, A standard init), empty optimizer, resumable state files. |
@@ -86,7 +88,8 @@ directory and, to start a run, its private backup repository. The launchers exit
 2. Start it: `bash training-code/launch-segment.sh SCHEDULE_ID`. It regenerates and verifies
    `SOURCE_SHA256SUMS`, writes `runs/SCHEDULE_ID/` with `training_config.py` (config, source
    plan, prior analysis; the step-0 adapter in `runs/SCHEDULE_ID-start/`; the campaign ledgers
-   once), copies the source identity in and starts `launch-training.sh` detached. The run id is
+   once), copies the source identity in, records the git commit and any uncommitted source change
+   (`source-commit.txt`, `source-uncommitted.diff`) and starts `launch-training.sh` detached. The run id is
    the schedule id. If it stops before training begins, delete `runs/SCHEDULE_ID/` and start
    again: the step-0 adapter and the ledgers are reused.
 
@@ -151,9 +154,10 @@ Nothing has to be cleaned by hand during a run; the policy is `storage` in `sche
 
 - Training grades with the evaluation's judge path (`inference/benchmark_judge.py`): one
   extraction call per draw, then 3-vote one-to-one matching, all on the judge in
-  `benchmark_scope.json`. A failed call casts no vote; a draw with an unknown grade makes the
-  worker regrade the whole group once from the cache, and a group still unknown is withheld
-  (the visit fails). A draw that hit the length cap scores 0 and is never judged. Budget
+  `benchmark_scope.json`, whose `iterations`, `batch_size` and `retry_limit` (0) must match
+  what the matcher runs or the judge refuses to start. A failed call casts no vote; a draw
+  with an unknown grade makes the worker regrade the whole group once from the cache, and a
+  group still unknown is withheld (the visit fails). A draw that hit the length cap scores 0 and is never judged. Budget
   exhaustion stops grading.
 - Paid responses are cached per visit in `judge-cache/`, so a regraded or resumed group
   pays only for calls that never completed.

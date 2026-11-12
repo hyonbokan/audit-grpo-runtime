@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 from pathlib import Path
 from typing import Any
 
+from checkpoint_files import ADAPTER
 from grpo.corrected_loss import corrected_loss, support_logprobs
 from grpo.placement import hidden_on_head_device, layer_devices
-from runtime_io import new_phase_dir
+from progress import GROUP_SIZE
+from runtime_io import new_phase_dir, sha256_file
 
 
 def join_update_group(
@@ -20,7 +21,7 @@ def join_update_group(
     rewards: list[float],
     expected_version: str,
 ) -> list[dict[str, Any]]:
-    if len(samples) != 4 or len(rewards) != 4:
+    if len(samples) != GROUP_SIZE or len(rewards) != GROUP_SIZE:
         raise ValueError("Complete four-draw grades required")
     if any(
         sample.get("weight_version") != expected_version
@@ -43,7 +44,7 @@ def apply_update(
 ) -> dict[str, Any]:
     import torch
 
-    if len(group) != 4 or not expected_version:
+    if len(group) != GROUP_SIZE or not expected_version:
         raise ValueError("Exactly four versioned draws required")
     for sample in group:
         if (
@@ -67,7 +68,7 @@ def apply_update(
     decoder = model.get_decoder()
     head = model.get_output_embeddings()
     total_tokens = sum(len(sample["completion_ids"]) for sample in group)
-    mean_reward = sum(rewards) / 4
+    mean_reward = sum(rewards) / GROUP_SIZE
     optimizer.zero_grad(set_to_none=True)
     loss_sum, ratios, old_logprobs, transfers = 0.0, [], [], set()
     for sample in group:
@@ -174,9 +175,7 @@ def run_update(config: dict[str, Any], out: Path) -> dict[str, Any]:
         if config.get("policy_reasoning_effort"):
             validate_policy_profile(config, json.loads(Path(config["request"]).read_text()), plan)
             receipt["policy_reasoning_effort"] = config["policy_reasoning_effort"]
-        source_sha = hashlib.sha256(
-            (checkpoint / "adapter_model.safetensors").read_bytes()
-        ).hexdigest()
+        source_sha = sha256_file(checkpoint / ADAPTER)
         expected_version = f"step-{config['initial_step']}:{source_sha}"
         samples = json.loads((out.parent / "rollout/samples.json").read_text())
         grades = json.loads((out.parent / "grading/rewards.json").read_text())
@@ -193,7 +192,7 @@ def run_update(config: dict[str, Any], out: Path) -> dict[str, Any]:
             if config.get("schedule_id")
             else None
         )
-        before = load_file(str(checkpoint / "adapter_model.safetensors"))
+        before = load_file(str(checkpoint / ADAPTER))
         receipt["layer_devices"] = layer_devices(layers)
         embedding = config["update_placement"]["embedding"]
         receipt["embedding_placement"] = embedding

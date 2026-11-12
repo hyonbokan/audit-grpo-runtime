@@ -164,3 +164,45 @@ The private baseline records each row's prior visit, four rewards, per-draw exac
 and finding volume, distinct exact and partial-only matches across draws, known-finding count,
 and reward-contract hash. Its evidence link is indexed from `private/`.
 The hypothesis and interpretation of transitions are owned by [research.md](research.md#hypothesis-previously-flat-rows-become-informative-on-a-later-pass).
+
+## 11. Segments 2 and 3: checkpoint history and visit statistics (completed 2026-11-10)
+
+Same frozen BF16 medium base, medium effort, free text, four draws on each of five projects, 100
+known findings. Each cell counts every known finding once across four draws; partial-only excludes
+any finding matched exactly in another draw. All 20 of 20 trained draws graded in every row.
+
+| Arm | Exact | Partial only | Exact + partial | Volume-matched gain | Published F1 | Acceptance |
+|---|---:|---:|---:|---:|---:|---|
+| Base | 13 | 14 | 27 | n/a | 0.085 | n/a |
+| Step 15 | 19 | 11 | 30 | +0.024 | 0.110 | fail |
+| Step 25 | 12 | 12 | 24 | -0.005 | 0.074 | fail |
+| Step 46 | 13 | 10 | 23 | +0.018 | 0.082 | fail |
+
+- Step 15 is the best checkpoint on exact matches and F1. Later training did not add to it: step 25
+  lost 7 exact matches against step 15 and step 46 recovered only to the base's level.
+- Differences of one or two findings between steps 25 and 46 are within what four draws per
+  project can resolve. The step 15 to 25 drop (7 exact) probably is not.
+- Findings per draw changed unevenly between steps 25 and 46 (one project 35 to 51, another 64
+  to 47), so report length is not moving in one direction.
+
+Visit statistics, all three segments (179 visits, 46 optimizer updates):
+
+| Segment | Visits | Updates | Flat skips | Failed | Mean group reward | Mean findings per draw |
+|---|---:|---:|---:|---:|---:|---:|
+| 1 (steps 0 to 15) | 62 | 15 | 42 | 5 | 0.127 | 10.1 |
+| 2 (steps 15 to 25) | 30 | 10 | 20 | 0 | 0.103 | 10.5 |
+| 3 (steps 25 to 46) | 87 | 21 | 64 | 2 | 0.160 | 10.3 |
+
+- About 26% of visits changed the policy. The rest were flat (no reward contrast across four
+  draws). No draw was truncated in any segment, and update diagnostics were healthy in segment 3
+  (clip fraction 0, effective sample size at least 0.999, mean gradient norm 0.024).
+- Mean group reward did not trend upward within segment 3 (thirds: 0.125, 0.186, 0.170), and
+  the update rate stayed near 0.2 to 0.3.
+- Of 96 distinct rows visited, 76 were visited more than once. **58 of the 96 never produced a
+  nonzero reward in any visit**; only 33 were ever mixed. The learning signal comes from roughly
+  a third of the rows.
+- Transitions between a row's consecutive graded visits (76 pairs): all-zero to all-zero 40,
+  all-zero to mixed 6, mixed to mixed 13, mixed to flat 12, flat nonzero to flat nonzero 5. Rows
+  that were all-zero became informative on a later pass about one time in eight.
+- No repeated-seed confirmation, no retention evaluation and no check that a step-15 adapter
+  reproduces its numbers on a second draw set.

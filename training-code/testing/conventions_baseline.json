@@ -15,7 +15,6 @@
     "schedules.py": 1
   },
   "write_json": {
-    "cycle_contract.py": 3,
     "cycle_recovery.py": 1,
     "grpo/corrected_update.py": 1,
     "grpo/judge_cache.py": 1,
@@ -28,16 +27,10 @@
     "audited_corpus.py": 10,
     "corpus_checks.py": 1,
     "corpus_sources.py": 1,
-    "cycle_contract.py": 1,
-    "grpo/corrected_update.py": 1,
     "grpo/judge_cache.py": 1,
-    "grpo/native_policy.py": 1,
-    "inference/adapter_compat.py": 1,
-    "inference/adapter_mapping.py": 2,
     "inference/benchmark_contract.py": 5,
-    "inference/benchmark_judge.py": 2,
+    "inference/benchmark_judge.py": 1,
     "inference/generation.py": 1,
-    "inference/rollout.py": 2,
     "provenance.py": 1
   },
   "clock": {
@@ -53,7 +46,7 @@
     "grpo/corrected_update.py": 6,
     "grpo/memory_compat.py": 7,
     "grpo/native_policy.py": 14,
-    "hf_backup.py": 4,
+    "hf_backup.py": 3,
     "inference/adapter_compat.py": 2,
     "inference/benchmark_evaluation.py": 1,
     "inference/length_probe.py": 1,

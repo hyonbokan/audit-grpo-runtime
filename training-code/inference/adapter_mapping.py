@@ -1,17 +1,19 @@
 """Preserve native adapter values while naming the vLLM language-model path."""
 
-import hashlib
 import json
 import shutil
 
 import torch
 from safetensors.torch import load_file, save_file
 
+from checkpoint_files import ADAPTER
+from runtime_io import sha256_file
+
 
 def prepare_adapter(source, destination):
     if destination.exists():
         raise FileExistsError(destination)
-    original = load_file(str(source / "adapter_model.safetensors"))
+    original = load_file(str(source / ADAPTER))
     prefix = "base_model.model.model.layers."
     if not original or any(not key.startswith(prefix) for key in original):
         raise ValueError("Unreviewed native adapter prefix")
@@ -21,8 +23,8 @@ def prepare_adapter(source, destination):
     }
     destination.mkdir()
     shutil.copyfile(source / "adapter_config.json", destination / "adapter_config.json")
-    save_file(mapped, str(destination / "adapter_model.safetensors"))
-    saved = load_file(str(destination / "adapter_model.safetensors"))
+    save_file(mapped, str(destination / ADAPTER))
+    saved = load_file(str(destination / ADAPTER))
     if set(saved) != set(mapped) or not all(
         torch.equal(value, saved[key]) for key, value in mapped.items()
     ):
@@ -30,12 +32,8 @@ def prepare_adapter(source, destination):
     receipt = {
         "tensor_count": len(original),
         "all_tensor_values_identical": True,
-        "native_sha256": hashlib.sha256(
-            (source / "adapter_model.safetensors").read_bytes()
-        ).hexdigest(),
-        "mapped_sha256": hashlib.sha256(
-            (destination / "adapter_model.safetensors").read_bytes()
-        ).hexdigest(),
+        "native_sha256": sha256_file(source / ADAPTER),
+        "mapped_sha256": sha256_file(destination / ADAPTER),
         "source": str(source),
         "destination": str(destination),
     }

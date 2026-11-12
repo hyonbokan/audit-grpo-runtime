@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
-GROUP_DRAWS = 4
+from progress import GROUP_SIZE
 
 
 def group_metrics(row: dict[str, Any], grades: list[dict[str, Any]]) -> dict[str, Any]:
-    if len(grades) != GROUP_DRAWS:
+    if len(grades) != GROUP_SIZE:
         raise ValueError("Measurement requires four fixed-budget draws")
     graded = [grade for grade in grades if grade["status"] == "graded"]
     caught = {

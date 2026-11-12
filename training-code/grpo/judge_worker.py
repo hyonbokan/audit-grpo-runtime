@@ -20,11 +20,11 @@ from grpo.judge_cache import CachedJudge
 from grpo.judge_environment import judge_router_config
 from grpo.measurement import group_metrics
 from grpo.samples import write_new
+from progress import GROUP_SIZE
 from runtime_io import new_phase_dir, read_json
 
-# One router slot per draw: the group's four draws are graded together.
-GRADING_CONCURRENCY = 4
-JUDGE_MODEL = "gpt-6-luna"
+# One router slot per draw: every draw of a group is graded together.
+GRADING_CONCURRENCY = GROUP_SIZE
 
 
 def main(argv=None):
@@ -59,14 +59,16 @@ async def run(args):
         cap=plan["access"]["judge_usd_cap"],
         operation_id=plan["judge_operation"]["id"],
         operation_cap=plan["judge_operation"]["cap_usd"],
-        model=JUDGE_MODEL,
+        model=plan["benchmark_judge"]["model"],
     )
     samples = json.loads(args.samples.read_text())
     new_phase_dir(args.out)
     router = await RecordedJudgeRouter.create(router_config)
     router.event_dir = args.out / "events"
     try:
-        cache, extract, match = cached_judges(router, args.out, budget, args.cache)
+        cache, extract, match = cached_judges(
+            router, args.out, budget, args.cache, plan["benchmark_judge"]
+        )
         rewards = await grade_selected_group(
             samples, private, reward, template, extract, match, cache.new_attempt, args.out, plan
         )
@@ -111,12 +113,16 @@ async def grade_selected_group(
 # --- Judges behind the cycle's response cache
 
 
-def cached_judges(router: Any, out: Path, budget: JudgeBudget, directory: Path):
+def cached_judges(
+    router: Any, out: Path, budget: JudgeBudget, directory: Path, settings: dict[str, Any]
+):
     """The extraction and voted-matching judges, each paid call kept for a regrade or a resume."""
     (out / "extraction").mkdir()
     paid = {
-        "extract": BenchmarkJudge(router, out / "extraction", budget, ExtractedReport),
-        "match": BenchmarkJudge(router, out, budget),
+        "extract": BenchmarkJudge(
+            router, out / "extraction", budget, ExtractedReport, settings=settings
+        ),
+        "match": BenchmarkJudge(router, out, budget, settings=settings),
     }
 
     async def paid_call(request: dict[str, Any]) -> dict[str, Any]:

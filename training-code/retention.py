@@ -5,7 +5,7 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
-from hf_backup import RESUME_ONLY_NAMES
+from checkpoint_files import RESUME_ONLY
 from runtime_io import read_json, save_json, utc_now
 
 MERGE_MANIFEST = "MERGE_MANIFEST.json"
@@ -17,12 +17,7 @@ GIB = 2**30
 
 def prune_visits(state: dict, resume_states_kept: int, pinned_steps: list[int]) -> list[dict]:
     """Remove adapter copies everywhere and resume state outside the newest and pinned steps."""
-    if type(resume_states_kept) is not int or resume_states_kept < 1:
-        raise ValueError("storage.resume_states_kept must be an integer of at least 1")
-    if type(pinned_steps) is not list or any(
-        type(step) is not int or step < 1 for step in pinned_steps
-    ):
-        raise ValueError("storage.resume_steps_pinned must be a list of positive integers")
+    # schedules.scope validated the policy when the schedule loaded.
     removed = []
     for visit in state["visits"]:
         # The copy of the adapter that vLLM loaded; the rollout receipt keeps its hashes.
@@ -35,7 +30,7 @@ def prune_visits(state: dict, resume_states_kept: int, pinned_steps: list[int]) 
     for step, update_root in checkpoints[:-resume_states_kept]:
         if step in pinned_steps:
             continue
-        for name in sorted(RESUME_ONLY_NAMES):
+        for name in sorted(RESUME_ONLY):
             removed += remove_file(update_root / f"checkpoint-{step}" / name)
     return removed
 

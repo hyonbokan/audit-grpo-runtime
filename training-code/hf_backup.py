@@ -10,14 +10,14 @@ import tarfile
 from datetime import UTC, datetime
 from pathlib import Path
 
+from checkpoint_files import ADAPTER, RESUMABLE, RESUME_ONLY
 from runtime_io import read_json
 from runtime_io import save_json as save
 from runtime_io import sha256_file as digest
 
 RESULTS_ROOT = Path("/results")
 # Per-visit weights and optimizer state are held once, in the checkpoint directory.
-HEAVY_NAMES = {"adapter_model.safetensors", "optimizer.pt"}
-RESUME_ONLY_NAMES = {"optimizer.pt", "scheduler.pt", "rng_state.pth"}
+HEAVY_NAMES = {ADAPTER, "optimizer.pt"}
 VERIFIED_STATUS = "complete_resumable_archive_download_verified"
 
 
@@ -71,16 +71,7 @@ def verify_resumable(checkpoint: Path, step: int, learning_rate: float) -> dict:
     import torch
     from safetensors import safe_open
 
-    required = (
-        "adapter_model.safetensors",
-        "adapter_config.json",
-        "optimizer.pt",
-        "scheduler.pt",
-        "rng_state.pth",
-        "trainer_state.json",
-        "continuation_schedule.json",
-    )
-    for name in required:
+    for name in (*RESUMABLE, "continuation_schedule.json"):
         if not (checkpoint / name).is_file():
             raise FileNotFoundError(checkpoint / name)
     if json.loads((checkpoint / "trainer_state.json").read_text())["global_step"] != step:
@@ -95,7 +86,7 @@ def verify_resumable(checkpoint: Path, step: int, learning_rate: float) -> dict:
     rng = torch.load(checkpoint / "rng_state.pth", map_location="cpu", weights_only=False)
     if not {"python", "numpy", "cpu", "cuda"}.issubset(rng):
         raise ValueError("Recovery RNG state is incomplete")
-    with safe_open(checkpoint / "adapter_model.safetensors", framework="pt") as tensors:
+    with safe_open(checkpoint / ADAPTER, framework="pt") as tensors:
         count = len(list(tensors.keys()))
     return {
         "state_deserialization": "passed",
@@ -112,10 +103,10 @@ def create_bundle(
     thin = kind == "thin"
     state = json.loads((run / "state.json").read_text())
     checkpoint = Path(state["current_checkpoint"])
-    if digest(checkpoint / "adapter_model.safetensors") != state["current_adapter_sha256"]:
+    if digest(checkpoint / ADAPTER) != state["current_adapter_sha256"]:
         raise ValueError("Latest accepted adapter changed before backup")
     out.mkdir(parents=True, exist_ok=False)
-    copy_complete_tree(checkpoint, out / "checkpoint", RESUME_ONLY_NAMES if thin else set())
+    copy_complete_tree(checkpoint, out / "checkpoint", set(RESUME_ONLY) if thin else set())
     copy_complete_tree(run, out / "experiment")
     for child in sorted(run.parent.glob(run.name + "-evaluation*")):
         if not thin:
@@ -149,7 +140,6 @@ def create_bundle(
     save(out / "RESTORE_CHECK.json", evidence)
     files = file_manifest(out)
     save(out / "FILE_SHA256.json", files)
-    verify_files(out, files)
     return {
         "kind": kind,
         "step": state["current_step"],

@@ -23,6 +23,7 @@ def schedule(schedule_id: str) -> dict[str, Any]:
             f"Unreviewed schedule {schedule_id!r}; registered: {sorted(registry['schedules'])}"
         )
     resolved = merge(registry["defaults"], registry["schedules"][schedule_id])
+    validate_storage(resolved["storage"])
     resolved["schedule_id"] = schedule_id
     resolved["training"]["schedule_id"] = schedule_id
     return resolved
@@ -40,6 +41,24 @@ def schedule_after_update(config: dict) -> dict:
         cursor=schedule["cursor"] + 1,
     )
     return schedule
+
+
+def validate_storage(storage: dict[str, Any]) -> None:
+    """Refuse a bad retention or backup policy at load, not on the first prune or backup."""
+
+    def positive_int(value: Any) -> bool:
+        return type(value) is int and value >= 1
+
+    if not positive_int(storage["resume_states_kept"]):
+        raise ValueError("storage.resume_states_kept must be an integer of at least 1")
+    pinned = storage["resume_steps_pinned"]
+    if type(pinned) is not list or not all(positive_int(step) for step in pinned):
+        raise ValueError("storage.resume_steps_pinned must be a list of positive integers")
+    free = storage["minimum_free_gib"]
+    if type(free) not in (int, float) or free < 0:
+        raise ValueError("storage.minimum_free_gib must be a non-negative number")
+    if not positive_int(storage["visit_backup_interval"]):
+        raise ValueError("storage.visit_backup_interval must be an integer of at least 1")
 
 
 def merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:

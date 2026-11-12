@@ -5,6 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import free_text_corpus
+from benchmark_free_text import SCOPE_PATH
+from runtime_io import read_json
 
 ROW_ID = "audit/group-123"
 SOURCE_FILES = [{"path": "Vault.sol", "content": "contract Vault {}", "sha256": "0" * 64}]
@@ -25,6 +27,8 @@ TRUTH = [
     },
 ]
 TRUTH_IDS = ["archive:1", "archive:2"]
+# The reviewed judge settings every paid judge test calls with.
+JUDGE_SETTINGS = read_json(SCOPE_PATH)["benchmark_judge"]
 TEMPLATE = "Truth:\n{ truth_finding }\nFindings:\n{ junior_findings }"
 
 
