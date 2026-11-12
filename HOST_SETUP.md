@@ -164,5 +164,5 @@ verified by the next rollout; a fit replay checks it by starting a rollout from 
 - **Run outputs are owned by root.** Move a failed attempt aside, or delete it from a
   container: `docker run --rm -v "$PWD/runs:/results" <image> rm -rf /results/<dir>`.
 - **NCCL needs a large `/dev/shm`.** Launchers pass `--shm-size 16g`; do the same ad hoc.
-- **Copied plans override code defaults.** Check effective values (e.g. `judge_call_retries`)
+- **Copied plans override code defaults.** Check effective values (e.g. `judge_retry_limit`)
   in the generated `judge-plan.json`.

@@ -8,6 +8,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from testing.judge import JUDGE_SETTINGS
+
 pytestmark = pytest.mark.skipif(sys.version_info < (3, 14), reason="Existing judge router is 3.14")
 
 
@@ -55,7 +57,7 @@ def test_judge_persists_success_or_failure_and_settles_shared_budget(tmp_path, f
     budget = JudgeBudget(
         tmp_path / "ledger.json", cap=150, operation_id="test", operation_cap=10, model="gpt-6-luna"
     )
-    judge = BenchmarkJudge(RouterBoundary(), tmp_path, budget)
+    judge = BenchmarkJudge(RouterBoundary(), tmp_path, budget, settings=JUDGE_SETTINGS)
     if failure:
         with pytest.raises(RuntimeError, match="unavailable"):
             asyncio.run(judge("private judge prompt"))
@@ -89,7 +91,9 @@ def test_budget_exhaustion_records_reason_without_calling_api(tmp_path):
         model="gpt-6-luna",
     )
     with pytest.raises(ValueError, match="budget"):
-        asyncio.run(BenchmarkJudge(RouterBoundary(), tmp_path, budget)("prompt"))
+        asyncio.run(
+            BenchmarkJudge(RouterBoundary(), tmp_path, budget, settings=JUDGE_SETTINGS)("prompt")
+        )
     error = json.loads((tmp_path / "call-0001/error.json").read_text())
     assert "operation budget" in error["error"]
 
@@ -146,7 +150,7 @@ def test_saved_votes_are_consumed_once_without_api_spend(tmp_path, has_incomplet
     out = tmp_path / "recovered"
     out.mkdir()
     budget = JudgeBudget(tmp_path / "ledger.json", cap=150, model="gpt-6-luna")
-    judge = BenchmarkJudge(NoApi(), out, budget, replay_path=source.parent)
+    judge = BenchmarkJudge(NoApi(), out, budget, settings=JUDGE_SETTINGS, replay_path=source.parent)
     assert asyncio.run(judge("same prompt"))["is_match"]
     assert not budget.path.exists()
     assert judge.reused == 1
@@ -351,7 +355,11 @@ def test_judge_accepts_another_response_schema_for_the_same_paid_boundary(tmp_pa
         tmp_path / "ledger.json", cap=150, operation_id="test", operation_cap=10, model="gpt-6-luna"
     )
     with pytest.raises(RuntimeError):
-        asyncio.run(BenchmarkJudge(RouterBoundary(), tmp_path, budget, Other)("prompt"))
+        asyncio.run(
+            BenchmarkJudge(RouterBoundary(), tmp_path, budget, Other, settings=JUDGE_SETTINGS)(
+                "prompt"
+            )
+        )
     assert seen["model"] is Other
     assert json.loads((tmp_path / "call-0001/request.json").read_text())["schema"] == (
         Other.model_json_schema()
@@ -433,3 +441,59 @@ def test_free_text_draws_are_extracted_once_then_matched_with_separate_records(
     assert [draw["answer_source"] for draw in metrics["draws"]] == ["final_answer"] * 4
     assert len(list((tmp_path / "g/extraction").glob("call-*"))) == 4
     assert len(list((tmp_path / "g").glob("call-*"))) == 8  # two agreeing match votes per draw
+
+
+def test_the_judge_calls_the_model_and_effort_its_settings_name(tmp_path):
+    from benchmark_judge import BenchmarkJudge, MatchingVerdict
+    from grpo.budget import JudgeBudget
+
+    settings = {**JUDGE_SETTINGS, "model": "gpt-6.1-sol", "effort": "high", "api_effort": "high"}
+    calls = []
+
+    class RouterBoundary:
+        async def complete(self, model, messages, **options):
+            calls.append((model, options["thinking_effort"].value, options["max_retries"]))
+            raise RuntimeError("API unavailable")
+
+    budget = JudgeBudget(
+        tmp_path / "ledger.json",
+        cap=150,
+        operation_id="test",
+        operation_cap=10,
+        model="gpt-6.1-sol",
+    )
+    judge = BenchmarkJudge(RouterBoundary(), tmp_path, budget, MatchingVerdict, settings=settings)
+    with pytest.raises(RuntimeError, match="unavailable"):
+        asyncio.run(judge("prompt"))
+    assert calls == [("gpt-6.1-sol", "high", 0)]
+    request = json.loads((tmp_path / "call-0001/request.json").read_text())
+    assert (request["model"], request["effort"], request["api_effort"]) == (
+        "gpt-6.1-sol",
+        "high",
+        "high",
+    )
+
+
+@pytest.mark.parametrize(
+    "change,message",
+    [
+        ({"iterations": 5}, "votes"),
+        ({"batch_size": 20}, "batches"),
+        ({"retry_limit": 1}, "reservation"),
+        ({"api_effort": "extreme"}, "xhigh"),
+    ],
+)
+def test_a_judge_block_the_grader_cannot_honour_fails_before_any_reservation(
+    tmp_path, change, message
+):
+    from benchmark_judge import BenchmarkJudge
+    from grpo.budget import JudgeBudget
+
+    class NoApi:
+        async def complete(self, *args, **options):
+            raise AssertionError("no call expected")
+
+    budget = JudgeBudget(tmp_path / "ledger.json", cap=150, operation_id="test", operation_cap=10)
+    # Refused when the judge is built, so no prompt is ever reserved against the budget.
+    with pytest.raises(ValueError, match=message):
+        BenchmarkJudge(NoApi(), tmp_path, budget, settings={**JUDGE_SETTINGS, **change})

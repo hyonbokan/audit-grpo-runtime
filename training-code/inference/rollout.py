@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import shutil
 import time
@@ -13,10 +12,11 @@ from typing import Any
 import benchmark_free_text as free_text
 from adapter_compat import verify_tensor_parallel
 from adapter_mapping import prepare_adapter
+from checkpoint_files import ADAPTER
 from cycle_contract import validate_config, validate_policy_profile, write_event
 from generation import capture_batch, validate_request, validate_shared_engine
 from grpo.samples import capture_sample
-from runtime_io import new_phase_dir, read_json, save_json
+from runtime_io import new_phase_dir, read_json, save_json, sha256_file
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -106,11 +106,7 @@ def resolve_arm(phase: str, config: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("Merged weights are evaluation-only")
     merged = bool(config.get("merged_model_path")) and not base
     checkpoint = None if base else Path(config["checkpoint"])
-    digest = (
-        hashlib.sha256((checkpoint / "adapter_model.safetensors").read_bytes()).hexdigest()
-        if checkpoint is not None
-        else None
-    )
+    digest = sha256_file(checkpoint / ADAPTER) if checkpoint is not None else None
     if not base and digest != config["initial_adapter_sha256"]:
         raise ValueError("Initial source checkpoint identity differs")
     version = f"base:{config['model_revision']}" if base else f"step-{step}:{digest}"
@@ -128,7 +124,7 @@ def resolve_arm(phase: str, config: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("Merged artifact source identity or precision differs")
         provenance.update(
             merged_model_path=config["merged_model_path"],
-            merge_manifest_sha256=hashlib.sha256(manifest_path.read_bytes()).hexdigest(),
+            merge_manifest_sha256=sha256_file(manifest_path),
             numerical_agreement_verified=False,
         )
     return {

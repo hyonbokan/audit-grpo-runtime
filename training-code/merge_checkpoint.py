@@ -3,32 +3,24 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import shutil
 import time
 from pathlib import Path
 from typing import Any
 
+import torch
+from safetensors import safe_open
+from safetensors.torch import load_file, save_file
 
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(8 * 1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+from checkpoint_files import ADAPTER
+from runtime_io import read_json, save_json, sha256_file
 
 
-def merge_checkpoint(
-    base: Path, adapter: Path, output: Path, revision: str
-) -> dict[str, Any]:
-    import torch
-    from safetensors import safe_open
-    from safetensors.torch import load_file, save_file
-
+def merge_checkpoint(base: Path, adapter: Path, output: Path, revision: str) -> dict[str, Any]:
     if output.exists():
         raise FileExistsError(output)
-    config = json.loads((adapter / "adapter_config.json").read_text())
+    config = read_json(adapter / "adapter_config.json")
     unsupported = (
         "use_rslora",
         "use_dora",
@@ -50,8 +42,8 @@ def merge_checkpoint(
     if rank <= 0:
         raise ValueError("Adapter rank must be positive")
     scale = config["lora_alpha"] / rank
-    adapter_weights = adapter / "adapter_model.safetensors"
-    adapter_digest = sha256(adapter_weights)
+    adapter_weights = adapter / ADAPTER
+    adapter_digest = sha256_file(adapter_weights)
     state = load_file(str(adapter_weights))
     prefix = "base_model.model.model.layers."
     targets = {}
@@ -60,11 +52,7 @@ def merge_checkpoint(
         if not key.startswith(prefix) or not key.endswith(".lora_A.weight"):
             continue
         partner = key.replace(".lora_A.weight", ".lora_B.weight")
-        if (
-            partner not in state
-            or value.shape[0] != rank
-            or state[partner].shape[1] != rank
-        ):
+        if partner not in state or value.shape[0] != rank or state[partner].shape[1] != rank:
             raise ValueError(f"Invalid adapter pair: {key}")
         target = key.replace(prefix, "model.language_model.layers.", 1)
         target = target.replace(".lora_A.weight", ".weight")
@@ -73,7 +61,7 @@ def merge_checkpoint(
     if not targets or used != set(state):
         raise ValueError("Unmapped or unpaired adapter tensors")
     index_path = base / "model.safetensors.index.json"
-    index = json.loads(index_path.read_text())
+    index = read_json(index_path)
     if not set(targets).issubset(index["weight_map"]):
         raise ValueError("Adapter target missing from base weight index")
     started = time.monotonic()
@@ -86,7 +74,7 @@ def merge_checkpoint(
         "adapter_path": str(adapter),
         "adapter_sha256": adapter_digest,
         "adapter_config": config,
-        "adapter_config_sha256": sha256(adapter / "adapter_config.json"),
+        "adapter_config_sha256": sha256_file(adapter / "adapter_config.json"),
         "rank": rank,
         "scale": scale,
         "stored_weight_precision": "bfloat16",
@@ -102,9 +90,9 @@ def merge_checkpoint(
     try:
         for filename in sorted(set(index["weight_map"].values())):
             source = base / filename
-            source_hash = sha256(source)
+            source_hash = sha256_file(source)
             with safe_open(str(source), framework="pt", device="cpu") as reader:
-                tensors = {name: reader.get_tensor(name) for name in reader.keys()}
+                tensors = {name: reader.get_tensor(name) for name in reader.keys()}  # noqa: SIM118 (not a dict)
                 metadata = reader.metadata()
             changed = []
             for name, weight in tensors.items():
@@ -138,25 +126,27 @@ def merge_checkpoint(
             save_file(tensors, str(destination), metadata=metadata)
             del tensors
             # Re-read every output tensor: untouched tensors must retain exact values.
-            with safe_open(str(source), framework="pt", device="cpu") as original:
-                with safe_open(str(destination), framework="pt", device="cpu") as saved:
-                    if set(original.keys()) != set(saved.keys()):
-                        raise ValueError("Saved shard tensor keys changed")
-                    for name in original.keys():
-                        if name not in targets and not torch.equal(
-                            original.get_tensor(name), saved.get_tensor(name)
-                        ):
-                            raise ValueError(f"Untouched tensor changed: {name}")
-            if sha256(source) != source_hash:
+            with (
+                safe_open(str(source), framework="pt", device="cpu") as original,
+                safe_open(str(destination), framework="pt", device="cpu") as saved,
+            ):
+                if set(original.keys()) != set(saved.keys()):
+                    raise ValueError("Saved shard tensor keys changed")
+                for name in original.keys():  # noqa: SIM118 (not a dict)
+                    if name not in targets and not torch.equal(
+                        original.get_tensor(name), saved.get_tensor(name)
+                    ):
+                        raise ValueError(f"Untouched tensor changed: {name}")
+            if sha256_file(source) != source_hash:
                 raise ValueError(f"Original base changed: {source}")
             manifest["files"][filename] = {
                 "source_sha256": source_hash,
-                "merged_sha256": sha256(destination),
+                "merged_sha256": sha256_file(destination),
                 "bytes": destination.stat().st_size,
                 "updated_tensors": changed,
             }
             manifest["merged_modules"] += len(changed)
-            manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+            save_json(manifest_path, manifest)
             print(
                 json.dumps(
                     {
@@ -172,22 +162,20 @@ def merge_checkpoint(
                 continue
             shutil.copyfile(source, output / source.name)
             manifest["files"][source.name] = {
-                "source_sha256": sha256(source),
-                "merged_sha256": sha256(output / source.name),
+                "source_sha256": sha256_file(source),
+                "merged_sha256": sha256_file(output / source.name),
                 "bytes": (output / source.name).stat().st_size,
             }
-        if sha256(adapter_weights) != adapter_digest:
+        if sha256_file(adapter_weights) != adapter_digest:
             raise ValueError("Original adapter changed")
         if manifest["merged_modules"] != len(targets):
             raise ValueError("Not all adapter target tensors were merged")
-        manifest.update(
-            status="merged_and_verified", seconds=time.monotonic() - started
-        )
+        manifest.update(status="merged_and_verified", seconds=time.monotonic() - started)
     except Exception as error:
         manifest.update(status="failed", error=f"{type(error).__name__}: {error}")
         raise
     finally:
-        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
+        save_json(manifest_path, manifest)
     return manifest
 
 

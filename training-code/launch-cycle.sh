@@ -15,6 +15,13 @@ if [[ "${3:-}" == --resume ]]; then resume=1; elif [[ -n "${3:-}" ]]; then echo 
   echo "The cycle directory must exist under $runtime_root/runs" >&2
   exit 2
 }
+# Verify the source before moving any earlier attempt's evidence.
+cd -- "$code_root"
+if ! sha256sum --check "$run_root/SOURCE_SHA256SUMS" > "$run_root/source-verification.log"; then
+  # This attempt's outcome; the earlier attempt's exit files stay as they were.
+  printf '1\n' > "$run_root/source-refused.txt"
+  exit 1
+fi
 if ((resume)); then
   # Archive the failed attempt's logs and incomplete phases; completed phases are reused.
   [[ -f "$run_root/prepared.json" ]] || { echo "Resume requires a prepared cycle" >&2; exit 2; }
@@ -24,15 +31,14 @@ else
     echo "Cycle already prepared; continue it with --resume" >&2
     exit 2
   }
-  if [[ -e "$run_root/launcher-exit.txt" ]]; then
+  if [[ -e "$run_root/launcher-exit.txt" || -e "$run_root/source-refused.txt" ]]; then
     # An earlier attempt stopped before preparation; keep its exit record as evidence.
     archive="$run_root/attempts/$(date -u +%Y%m%dT%H%M%SZ)-unprepared"
     mkdir -p "$archive"
-    mv "$run_root/launcher-exit.txt" "$run_root/last-phase.txt" "$archive/" 2>/dev/null || true
+    mv "$run_root/launcher-exit.txt" "$run_root/last-phase.txt" "$run_root/source-refused.txt" \
+      "$archive/" 2>/dev/null || true
   fi
 fi
-cd -- "$code_root"
-sha256sum --check "$run_root/SOURCE_SHA256SUMS" > "$run_root/source-verification.log"
 source "$code_root/launch-lib.sh"
 config=/run-config.json
 container_out="/results/$(basename -- "$run_root")"
@@ -47,9 +53,8 @@ native_image=${values[0]}
 rollout_image=${values[1]}
 seconds=${values[2]}  # already capped at the absolute deadline
 judge_seconds=${values[3]}
-skip_uninformative=${values[4]}
-update_gpus=${values[5]}
-rollout_gpus=${values[6]}
+update_gpus=${values[4]}
+rollout_gpus=${values[5]}
 if ((seconds <= 0)); then echo "Absolute deadline has passed" >&2; exit 124; fi
 if ((!resume)); then
   docker run --rm --network none "${mounts[@]}" "${environment[@]}" "$native_image" \
@@ -79,12 +84,14 @@ start_deadline_timer "$timer" "$seconds" "$prefix-rollout" "$prefix-update"
 
 gpu_phase() {
   local image=$1 memory=$2 gpus=$3 container="$prefix-$phase"
-  local phase_started
+  local phase_started left
   phase_started=$(date +%s)
   shift 3
   containers+=("$container")
   docker rm "$container" >/dev/null 2>&1 || true
-  timeout --foreground -k 10 "$(remaining)s" docker run --name "$container" \
+  # `|| return`: errexit does not reach a command substitution inside a function.
+  left=$(remaining) || return 124
+  timeout --foreground -k 10 "${left}s" docker run --name "$container" \
     --network none --gpus "$gpus" --cpus 8 --memory "$memory" --shm-size 16g \
     "${mounts[@]}" "${environment[@]}" "$image" /opt/pilot/gpu/bin/python "$@" \
     > "$run_root/$phase.log" 2>&1
@@ -102,20 +109,19 @@ phase=grading
 if [[ ! -f "$run_root/grading/rewards.json" ]]; then
   left=$(remaining)
   if ((judge_seconds > left)); then judge_seconds=$left; fi
-  sync_live_code
+  sync_live_code "$run_root/SOURCE_SHA256SUMS"
   live_exec timeout -k 10 "${judge_seconds}s" /opt/pilot/judge/bin/python \
     -m grpo.judge_worker \
     --samples "$container_out/rollout/samples.json" --split train \
     --out "$container_out/grading" --plan "$container_out/judge-plan.json" --run-paid \
     --cache "$container_out/judge-cache" > "$run_root/grading.log" 2>&1
 fi
-if [[ "$skip_uninformative" == true ]]; then
-  decision=$(docker run --rm --network none "${mounts[@]}" "${environment[@]}" "$native_image" \
-    /opt/pilot/gpu/bin/python -m progress group-decision --config "$config" --out "$container_out")
-  if [[ "$decision" == skip_no_reward_contrast ]]; then
-    phase=skipped_no_reward_contrast
-    exit 0
-  fi
+# Equal rewards give no gradient; the update refuses them, so the visit records a skip.
+decision=$(docker run --rm --network none "${mounts[@]}" "${environment[@]}" "$native_image" \
+  /opt/pilot/gpu/bin/python -m progress group-decision --config "$config" --out "$container_out")
+if [[ "$decision" == skip_no_reward_contrast ]]; then
+  phase=skipped_no_reward_contrast
+  exit 0
 fi
 
 phase=update
@@ -123,7 +129,8 @@ phase_complete update || gpu_phase "$native_image" 128g "$update_gpus" -m grpo.c
   --config "$config" --out "$container_out/update"
 
 phase=acceptance
-timeout --foreground "$(remaining)s" docker run --rm --network none \
+left=$(remaining)
+timeout --foreground "${left}s" docker run --rm --network none \
   "${mounts[@]}" "${environment[@]}" "$native_image" \
   /opt/pilot/gpu/bin/python -m cycle_contract finish --config "$config" --out "$container_out" \
   > "$run_root/acceptance.log" 2>&1

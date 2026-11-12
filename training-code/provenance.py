@@ -13,14 +13,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 SOURCE_SUFFIXES = {".py", ".sh", ".json", ".c"}  # .c: the peer-access shim preloaded in containers
-# Outside training-code but executed by launch-training.sh.
-EXTERNAL_SOURCES = ("../diagnostic-tools/merge_checkpoint.py",)
 IGNORED_PARTS = {"__pycache__", ".pytest_cache", ".ruff_cache", "fixtures", "testing", "private"}
 
 
 def maintained_files(root: Path = ROOT) -> list[str]:
     """Executable source and reviewed configuration; tests, fixtures and docs are excluded."""
-    local = sorted(
+    return sorted(
         str(path.relative_to(root))
         for path in root.rglob("*")
         if path.is_file()
@@ -28,7 +26,6 @@ def maintained_files(root: Path = ROOT) -> list[str]:
         and not path.name.startswith("test_")
         and not IGNORED_PARTS & set(path.relative_to(root).parts)
     )
-    return local + list(EXTERNAL_SOURCES)
 
 
 def checksums(root: Path = ROOT) -> str:

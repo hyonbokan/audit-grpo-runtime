@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 from datetime import UTC, datetime
@@ -12,8 +11,10 @@ from typing import Any
 
 import schedules
 from benchmark_free_text import SCOPE_PATH as BENCHMARK_SCOPE_PATH
+from checkpoint_files import ADAPTER, RESUMABLE
 from grpo.placement import docker_gpus, load_options, rollout_gpus
-from runtime_io import read_json, sha256_file
+from progress import GROUP_SIZE
+from runtime_io import read_json, save_json, sha256_file
 
 SCOPE_PATH = Path(__file__).with_name("cycle_scope.json")
 
@@ -90,6 +91,8 @@ def validate_config(config: dict[str, Any]) -> None:
     if config.get("policy_reasoning_effort") != limits["policy_reasoning_effort"]:
         raise ValueError("Policy reasoning effort differs from reviewed scope")
     required = read_json(SCOPE_PATH)
+    if required["sampling"]["n"] != GROUP_SIZE:
+        raise ValueError(f"Reviewed sampling n must be the group size {GROUP_SIZE}")
     required["engine"].update(
         max_model_len=context, gpu_memory_utilization=limits["gpu_memory_utilization"]
     )
@@ -169,17 +172,10 @@ def prepare_cycle(config: dict[str, Any], out: Path) -> None:
     if (deadline - datetime.now(UTC)).total_seconds() < config["seconds_limit"]:
         raise ValueError("Insufficient remaining machine budget")
     checkpoint = Path(config["checkpoint"])
-    for name in (
-        "adapter_model.safetensors",
-        "adapter_config.json",
-        "optimizer.pt",
-        "scheduler.pt",
-        "rng_state.pth",
-        "trainer_state.json",
-    ):
+    for name in RESUMABLE:
         if not (checkpoint / name).is_file():
             raise FileNotFoundError(checkpoint / name)
-    digest = hashlib.sha256((checkpoint / "adapter_model.safetensors").read_bytes()).hexdigest()
+    digest = sha256_file(checkpoint / ADAPTER)
     if digest != config["initial_adapter_sha256"]:
         raise ValueError("Accepted source checkpoint identity differs")
     if (
@@ -192,7 +188,6 @@ def prepare_cycle(config: dict[str, Any], out: Path) -> None:
             raise FileNotFoundError(config[name])
     if not Path(config["model_path"]).is_dir():
         raise FileNotFoundError(config["model_path"])
-    (out / "prepared.json").write_text(json.dumps(config, indent=2) + "\n")
     plan = json.loads(Path(config["source_plan"]).read_text())
     plan["judge_operation"] = {"id": config["run_id"], "cap_usd": config["judge_operation_cap_usd"]}
     if config.get("judge_env_file"):
@@ -203,7 +198,9 @@ def prepare_cycle(config: dict[str, Any], out: Path) -> None:
     # The judge and the reward come from the reviewed files, never from the cycle config.
     plan["reward"] = schedules.scope(config)["training"]["reward"]
     plan["benchmark_judge"] = read_json(BENCHMARK_SCOPE_PATH)["benchmark_judge"]
-    (out / "judge-plan.json").write_text(json.dumps(plan, indent=2) + "\n")
+    save_json(out / "judge-plan.json", plan)
+    # The resume marker comes last: a resumed cycle skips preparation and needs the plan.
+    save_json(out / "prepared.json", config)
     write_event(
         out, "cycle_start", initial_step=config["initial_step"], target_step=config["target_step"]
     )
@@ -235,13 +232,13 @@ def finish_cycle(config: dict[str, Any], out: Path) -> dict[str, Any]:
     request = read_json(config["request"])
     checkpoint = out / f"update/checkpoint-{config['target_step']}"
     evidence = {
-        "complete_group": len(samples) == 4
+        "complete_group": len(samples) == GROUP_SIZE
         and all(
             sample.get("row_id") == config["row_id"] == request["row_id"]
             and sample.get("prompt_ids") == request["prompt_ids"]
             for sample in samples
         ),
-        "known_grades": len(grades) == 4
+        "known_grades": len(grades) == GROUP_SIZE
         and all(type(value) in (int, float) and math.isfinite(value) for value in grades),
         "sampling_support": all(
             sample.get("sampling_support_ids") is not None for sample in samples
@@ -253,19 +250,10 @@ def finish_cycle(config: dict[str, Any], out: Path) -> dict[str, Any]:
         and update["correction_ess_fraction"] >= config["min_ess_fraction"],
         "changed_weights": update["adapter_weights_changed"],
         "optimizer_progress": update["optimizer_steps"] == [config["target_step"]],
-        "checkpoint_saved": all(
-            (checkpoint / name).is_file()
-            for name in (
-                "adapter_model.safetensors",
-                "optimizer.pt",
-                "rng_state.pth",
-                "scheduler.pt",
-                "trainer_state.json",
-            )
-        ),
+        "checkpoint_saved": all((checkpoint / name).is_file() for name in RESUMABLE),
         # vLLM's copy of this adapter is verified when the next visit's rollout loads it.
-        "saved_adapter_identity": (checkpoint / "adapter_model.safetensors").is_file()
-        and sha256_file(checkpoint / "adapter_model.safetensors") == update["adapter_sha256"]
+        "saved_adapter_identity": (checkpoint / ADAPTER).is_file()
+        and sha256_file(checkpoint / ADAPTER) == update["adapter_sha256"]
         and update["weight_version"] == f"step-{config['target_step']}:{update['adapter_sha256']}",
         "weight_version_chain": update["weight_version"] != source["weight_version"]
         and update["source_weight_version"] == source["weight_version"]
@@ -288,7 +276,7 @@ def finish_cycle(config: dict[str, Any], out: Path) -> dict[str, Any]:
         "target_step": config["target_step"],
         "quality_gain_established": False,
     }
-    (out / "cycle-result.json").write_text(json.dumps(result, indent=2) + "\n")
+    save_json(out / "cycle-result.json", result)
     write_event(out, "cycle_end", approved=result["decision"]["approved"])
     return result
 
@@ -324,7 +312,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def launcher_settings(config: dict[str, Any]) -> list[str]:
-    """Lines read by launch-cycle.sh: images, capped time limits, skip policy, phase GPUs."""
+    """Lines read by launch-cycle.sh: images, capped time limits, phase GPUs."""
     until_deadline = int(
         (datetime.fromisoformat(config["absolute_deadline"]) - datetime.now(UTC)).total_seconds()
     )
@@ -333,7 +321,6 @@ def launcher_settings(config: dict[str, Any]) -> list[str]:
         config["rollout_image"],
         str(min(config["seconds_limit"], until_deadline)),
         str(config["judge_seconds_limit"]),
-        str(config.get("skip_uninformative_groups", False)).lower(),
         docker_gpus(config["update_placement"]["gpus"]),
         docker_gpus(rollout_gpus(config["engine"])),
     ]

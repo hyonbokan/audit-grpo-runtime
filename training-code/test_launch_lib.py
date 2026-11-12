@@ -176,3 +176,66 @@ def test_peer_access_must_be_declared_with_an_allowed_value(tmp_path, setting):
     result = run("echo sourced", tmp_path)
     assert result.returncode == 2 and "sourced" not in result.stdout
     assert "AUDIT_GRPO_PEER_ACCESS" in result.stderr and "enabled, disabled" in result.stderr
+
+
+@pytest.mark.parametrize("copied", [False, True])
+def test_live_code_is_copied_once_per_source_identity_and_verified_there(tmp_path, copied):
+    sums = tmp_path / "run/SOURCE_SHA256SUMS"
+    sums.parent.mkdir()
+    sums.write_text("0" * 64 + "  controller.py\n")
+    identity = hashlib.sha256(sums.read_bytes()).hexdigest()[:16]
+    calls = tmp_path / "docker-calls"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    exists = 0 if copied else 1
+    moved = tmp_path / "moved"  # the copy is in place once the move has run
+    (bin_dir / "docker").write_text(
+        f'#!/bin/bash\necho "docker $*" >> {calls}\n[[ "$*" != *"mv -T"* ]] || touch {moved}\n'
+        f'[[ "$*" != *" test -d "* || -e {moved} ]] || exit {exists}\n'
+    )
+    (bin_dir / "docker").chmod(0o755)
+    result = run(
+        f'sync_live_code {sums} && echo "$LIVE_CODE"',
+        tmp_path,
+        PATH=f"{bin_dir}:{os.environ['PATH']}",
+    )
+    assert result.returncode == 0, result.stderr
+    live = f"/opt/audit-grpo-training-code/{identity}"
+    assert result.stdout.strip() == live
+    lines = calls.read_text().splitlines()
+    assert lines[0] == f"docker exec audit-grpo-live test -d {live}"
+    if copied:
+        assert lines == lines[:1]
+        return
+    [staging] = {line.split(":", 1)[1] for line in lines if line.startswith("docker cp ")}
+    assert staging.startswith(f"{live}.") and staging.endswith(".partial")
+    verify = f"docker exec -i -w {staging} audit-grpo-live sha256sum --check --quiet -"
+    assert verify in lines
+    assert lines.index(verify) < next(i for i, line in enumerate(lines) if "mv -T" in line)
+    assert lines[-1] == f"docker exec audit-grpo-live test -d {live}"
+
+
+@pytest.mark.parametrize(
+    "failing,staging_removed",
+    [('" cp "', True), ('" sha256sum "', True), ('" test -d "', False)],
+)
+def test_a_live_copy_that_is_not_verified_in_place_fails_and_leaves_no_staging(
+    tmp_path, failing, staging_removed
+):
+    sums = tmp_path / "run/SOURCE_SHA256SUMS"
+    sums.parent.mkdir()
+    sums.write_text("0" * 64 + "  controller.py\n")
+    calls = tmp_path / "docker-calls"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    # `test -d` fails throughout: the copy is absent before and, here, after the move too.
+    (bin_dir / "docker").write_text(
+        f'#!/bin/bash\necho "docker $*" >> {calls}\n'
+        f'[[ " $* " != *" test -d "* ]] || exit 1\n[[ " $* " != *{failing}* ]] || exit 1\n'
+    )
+    (bin_dir / "docker").chmod(0o755)
+    result = run(f"sync_live_code {sums}", tmp_path, PATH=f"{bin_dir}:{os.environ['PATH']}")
+    assert result.returncode != 0
+    lines = calls.read_text().splitlines()
+    removals = [line for line in lines if line.startswith("docker exec audit-grpo-live rm -rf ")]
+    assert [line.endswith(".partial") for line in removals] == ([True] if staging_removed else [])

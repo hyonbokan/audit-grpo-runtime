@@ -29,7 +29,7 @@ judge grades them against private ground truth. When the rewards differ, the upd
 uses each answer's reward minus the group mean as its advantage, applies the clipped
 policy objective with a correction for generation/training probability differences,
 and takes one optimizer step. Only the LoRA adapter is trained; the BF16 base weights
-stay frozen. Groups with equal rewards are skipped when the schedule enables that rule.
+stay frozen. Groups with equal rewards carry no advantage and are always skipped.
 
 ```mermaid
 flowchart TD
@@ -42,14 +42,14 @@ flowchart TD
     L["Unsloth + PEFT: model, LoRA and memory optimizations"] --> U
     U --> A["Cycle acceptance checks"]
     A -->|"Pass"| K["Record accepted checkpoint"]
-    D -->|"Skip when enabled"| S["Record visit; keep current checkpoint"]
+    D -->|"No contrast: skip"| S["Record visit; keep current checkpoint"]
     K --> B["Periodic visit backup and disk retention"]
     S --> B
     B --> C
     K --> V["Final evaluation against the frozen base"]
 ```
 
-The diagram shows the successful update and configured skip paths. Failed phases follow
+The diagram shows the update and skip paths. Failed phases follow
 the bounded retry/skip policy described in the [training guide](training-code/README.md#resume-and-failures).
 Private ground truth goes to grading only; policy inputs never contain it. Cycle
 acceptance establishes update correctness; the next visit's rollout verifies vLLM's copy of
@@ -111,7 +111,7 @@ frameworks when distributed execution and rollout scheduling justify the migrati
 | `training-code/` | The maintained code: launchers, controller, native update, judge, evaluation. See its [README](training-code/README.md). |
 | `images/` | Dockerfile, locks and build script for the pinned runtime images. See [HOST_SETUP.md](HOST_SETUP.md). |
 | `docs/` | The training design, compute planning (memory, multiple GPUs, hardware tiers for larger models) and the main research document. |
-| `diagnostic-tools/`, `backup-tools/` | Standalone utilities: checkpoint merge and comparison, long-sequence fit inputs, checkpoint backup. `merge_checkpoint.py` is called by `launch-training.sh`. |
+| `diagnostic-tools/` | Standalone utilities: runtime-LoRA vs merged comparison, long-sequence fit inputs. |
 | `planning-tools/` | Compute estimator for memory, time and hardware tiers of candidate models. See its [README](planning-tools/README.md). |
 | `archive/` | Finished-experiment code and the original extraction provenance. Read-only. |
 | `results/` | Published results only: `README.md` (the results table) and one `<model>/results.json` per evaluated model, written by `training-code/publish-results.sh` (not in git). |
@@ -164,7 +164,7 @@ restricted file outside it and name that file in the run config (`judge_env_file
 
 ## Version control
 
-This directory is a local git repository with no remote; the parent `ai-auditor`
+The repository has a public GitHub remote (`origin`); the parent `ai-auditor`
 repository ignores `backend/scripts/finetuning/`. [.gitignore](.gitignore) keeps out
 secrets, `private/`, `results/`, `runs/`, `workspace/`, model weights and archives, and logs.
 Check `git status --ignored` before any push.

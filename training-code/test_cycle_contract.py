@@ -87,6 +87,18 @@ def test_engine_memory_allocation_is_the_reviewed_one(change):
         cycle_contract.validate_config(config)
 
 
+def test_a_reviewed_sampling_n_other_than_the_group_size_is_refused(tmp_path, monkeypatch):
+    config = schedule_cycle(DAY)
+    scope = json.loads(cycle_contract.SCOPE_PATH.read_text())
+    scope["sampling"]["n"] = 5
+    changed = tmp_path / "cycle_scope.json"
+    changed.write_text(json.dumps(scope))
+    monkeypatch.setattr(cycle_contract, "SCOPE_PATH", changed)
+    config["sampling"]["n"] = 5
+    with pytest.raises(ValueError, match="group size"):
+        cycle_contract.validate_config(config)
+
+
 @pytest.mark.parametrize("schedule_id", [None, "continuation-expanded-20261009"])
 def test_a_cycle_must_name_a_registered_schedule(schedule_id):
     config = schedule_cycle(DAY)
@@ -160,7 +172,13 @@ def cycle_fixture(tmp_path):
         path.write_text(json.dumps(value))
     checkpoint = tmp_path / f"update/checkpoint-{target}"
     checkpoint.mkdir()
-    for name in ("optimizer.pt", "rng_state.pth", "scheduler.pt", "trainer_state.json"):
+    for name in (
+        "adapter_config.json",
+        "optimizer.pt",
+        "rng_state.pth",
+        "scheduler.pt",
+        "trainer_state.json",
+    ):
         (checkpoint / name).touch()
     (checkpoint / "adapter_model.safetensors").write_bytes(SAVED_ADAPTER)
     return config, repeat
@@ -208,11 +226,8 @@ def continuation_config():
     )
 
 
-def test_preparation_carries_explicit_dotenv_path_to_training_worker(tmp_path, monkeypatch):
-    from cycle_contract import prepare_cycle
-
-    freeze(monkeypatch, cycle_contract, "2026-10-10T00:00:00+00:00")
-
+def prepare_inputs(tmp_path):
+    """A continuation config whose checkpoint and input files exist."""
     config = continuation_config()
     checkpoint = tmp_path / "checkpoint-2"
     checkpoint.mkdir()
@@ -237,6 +252,14 @@ def test_preparation_carries_explicit_dotenv_path_to_training_worker(tmp_path, m
         path = tmp_path / f"{key}.json"
         path.write_text("{}")
         config[key] = str(path)
+    return config
+
+
+def test_preparation_carries_explicit_dotenv_path_to_training_worker(tmp_path, monkeypatch):
+    from cycle_contract import prepare_cycle
+
+    freeze(monkeypatch, cycle_contract, "2026-10-10T00:00:00+00:00")
+    config = prepare_inputs(tmp_path)
     out = tmp_path / "cycle"
     out.mkdir()
     prepare_cycle(config, out)
@@ -244,6 +267,20 @@ def test_preparation_carries_explicit_dotenv_path_to_training_worker(tmp_path, m
     assert plan["judge_env_file"] == "/opt/audit-grpo-secrets/judge.env"
     assert plan["reward"] == schedules.scope(config)["training"]["reward"]
     assert plan["benchmark_judge"] == read_json(BENCHMARK_SCOPE_PATH)["benchmark_judge"]
+
+
+def test_a_preparation_that_fails_leaves_no_resume_marker(tmp_path, monkeypatch):
+    from cycle_contract import prepare_cycle
+
+    freeze(monkeypatch, cycle_contract, "2026-10-10T00:00:00+00:00")
+    config = prepare_inputs(tmp_path)
+    (tmp_path / "source_plan.json").write_text("not json")
+    out = tmp_path / "cycle"
+    out.mkdir()
+    with pytest.raises(json.JSONDecodeError):
+        prepare_cycle(config, out)
+    assert not (out / "prepared.json").exists()
+    assert not (out / "judge-plan.json").exists()
 
 
 def test_acceptance_rejects_samples_from_a_row_outside_the_frozen_step(tmp_path):
@@ -287,7 +324,6 @@ def test_launcher_settings_cap_the_cycle_at_the_absolute_deadline(monkeypatch, n
         config["rollout_image"],
         str(seconds),
         str(config["judge_seconds_limit"]),
-        "false",
         '"device=0"',
         '"device=0"',
     ]
@@ -296,10 +332,9 @@ def test_launcher_settings_cap_the_cycle_at_the_absolute_deadline(monkeypatch, n
 def test_launcher_settings_report_a_passed_deadline_as_no_time_left(monkeypatch):
     freeze(monkeypatch, cycle_contract, "2026-10-12T00:00:00+00:00")
     config = schedule_cycle("medium-checkpoint-20261010")
-    config.update(absolute_deadline="2026-10-11T23:00:00+00:00", skip_uninformative_groups=True)
+    config.update(absolute_deadline="2026-10-11T23:00:00+00:00")
     settings = cycle_contract.launcher_settings(config)
     assert int(settings[2]) <= 0
-    assert settings[4] == "true"
 
 
 # --- GPU placement
@@ -328,7 +363,7 @@ def test_a_registered_split_is_validated_and_exposes_both_gpus_to_each_phase(
     assert config["engine"]["tensor_parallel_size"] == 2
     cycle_contract.validate_config(config)
     freeze(monkeypatch, cycle_contract, "2026-10-10T00:00:00+00:00")
-    assert cycle_contract.launcher_settings(config)[5:] == ['"device=0,1"', '"device=0,1"']
+    assert cycle_contract.launcher_settings(config)[4:] == ['"device=0,1"', '"device=0,1"']
 
 
 @pytest.mark.parametrize(

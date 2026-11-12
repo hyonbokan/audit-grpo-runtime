@@ -1,13 +1,13 @@
 minimum_pre_commit_version: '4.3.0'
 default_install_hook_types: [pre-commit, pre-push]
 default_stages: [pre-commit]
-# Historical code is read-only and has its own original conventions.
-exclude: ^archive/
 
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: 0470f7c8a653e950f7cc5a653204ceb3fde4c02a  # v0.15.0
     hooks:
+      # Ruff skips archive/: historical code is read-only and keeps its original conventions.
+      # Every other hook, including the secret and private-artifact checks, covers it.
       - id: ruff-check
         files: ^training-code/.*\.py$
       - id: ruff-format

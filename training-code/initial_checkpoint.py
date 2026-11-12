@@ -13,6 +13,7 @@ import numpy as np
 import torch
 from safetensors.torch import load_file, save_file
 
+from checkpoint_files import ADAPTER
 from runtime_io import save_json, sha256_file
 
 COPIED_FILES = ("adapter_config.json",)
@@ -34,14 +35,14 @@ def create(template: Path, out: Path, seed: int, learning_rate: float) -> dict[s
     if out.exists():
         raise FileExistsError(out)
     generator = torch.Generator().manual_seed(seed)
-    tensors = load_file(template / "adapter_model.safetensors")
+    tensors = load_file(template / ADAPTER)
     fresh = {name: fresh_tensor(name, tensors[name], generator) for name in sorted(tensors)}
     optimizer = torch.load(template / "optimizer.pt", map_location="cpu", weights_only=True)
     if sum(len(group["params"]) for group in optimizer["param_groups"]) != len(fresh):
         raise ValueError("Template optimizer and adapter differ in parameter count")
     scheduler = torch.load(template / "scheduler.pt", map_location="cpu", weights_only=True)
     out.mkdir(parents=True)
-    save_file(fresh, out / "adapter_model.safetensors", metadata={"format": "pt"})
+    save_file(fresh, out / ADAPTER, metadata={"format": "pt"})
     for name in COPIED_FILES:
         (out / name).write_bytes((template / name).read_bytes())
     torch.save({**optimizer, "state": {}}, out / "optimizer.pt")
@@ -55,7 +56,7 @@ def create(template: Path, out: Path, seed: int, learning_rate: float) -> dict[s
     save_json(out / "continuation_schedule.json", schedule)
     return {
         "checkpoint": str(out),
-        "adapter_sha256": sha256_file(out / "adapter_model.safetensors"),
+        "adapter_sha256": sha256_file(out / ADAPTER),
     }
 
 

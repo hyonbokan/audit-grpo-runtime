@@ -16,12 +16,11 @@ from corpus_checks import check_benchmark_overlap
 from frozen_requests import extend_request, rerender_request
 from hf_backup import backed_up_visits
 from panels import evaluation_configs, merged_path, verify_merge
-from progress import training_order, verify_dataset
+from progress import GROUP_SIZE, training_order, verify_dataset
 from retention import prune_visits, release_merge, require_free_space
 from runtime_io import new_result_dir, read_json, save_json, seconds_until, sha256_file, utc_now
 from schedules import scope
 
-GROUP_SIZE = 4
 # A visit starts only if this much time remains; later visits size it from recent visits.
 VISIT_RESERVE_MINIMUM_SECONDS = 1800
 VISIT_RESERVE_FACTOR = 1.25
@@ -86,8 +85,6 @@ def phase_record_failure(config: dict, out: Path, attempts: int) -> list[str]:
 def phase_backup_due(config: dict, out: Path, _attempts: int) -> list[str]:
     """Whether enough visits passed since the last verified backup to upload another."""
     interval = scope(config)["storage"]["visit_backup_interval"]
-    if type(interval) is not int or interval < 1:
-        raise ValueError("storage.visit_backup_interval must be an integer of at least 1")
     visits = len(read_json(out / "state.json")["visits"])
     return [str(visits - backed_up_visits(out) >= interval).lower()]
 
@@ -413,14 +410,24 @@ def record_failed_visit(state: dict, root: Path, attempts: int) -> None:
         return path.read_text().strip() if path.is_file() else "unknown"
 
     seconds = root / "cycle-seconds.txt"
+    outcome = {
+        "last_phase": text("last-phase.txt"),
+        "exit_status": text("launcher-exit.txt"),
+        "seconds": int(seconds.read_text()) if seconds.is_file() else 0,
+    }
+    if (root / "source-refused.txt").is_file():
+        # The last attempt stopped before its exit trap; the exit files are an older attempt's.
+        outcome = {
+            "last_phase": "source-verification",
+            "exit_status": text("source-refused.txt"),
+            "seconds": 0,
+        }
     state["visits"].append(
         {
             "root": str(root),
             "decision": "failed",
             "attempts": attempts,
-            "last_phase": text("last-phase.txt"),
-            "exit_status": text("launcher-exit.txt"),
-            "seconds": int(seconds.read_text()) if seconds.is_file() else 0,
+            **outcome,
             "all_truncated": False,
         }
     )

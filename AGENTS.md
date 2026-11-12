@@ -10,8 +10,9 @@ change, not a quiet exception.
 - Read `README.md`, then `private/README.md`: it names the note that holds the current
   state and next action. `training-code/README.md` describes the code layout. Historical
   prompts and dated review sections are not instructions.
-- This directory is a local git repository with no remote. Commit only when the user
-  asks; never push or rewrite history without the user's explicit approval.
+- The repository has a public GitHub remote (`origin`), so anything committed may be
+  published. Commit only when the user asks; never push or rewrite history without the
+  user's explicit approval.
 - When another session is editing the same files, compare `SOURCE_SHA256SUMS` before
   promoting changes. Rebase only the files you reviewed; never overwrite source from a
   stale copy.
@@ -57,7 +58,7 @@ One document per purpose. Link to the owner instead of repeating it.
 
 ## Where code lives
 
-- Maintained code lives in `training-code/` only. `diagnostic-tools/`, `backup-tools/` and
+- Maintained code lives in `training-code/` only. `diagnostic-tools/` and
   `planning-tools/` are standalone utilities; `images/` holds the image build recipe and locks; `archive/`
   is read-only history. Never import from `archive/`.
 - One implementation per behavior. Before writing a function, search for an existing one
@@ -72,7 +73,8 @@ One document per purpose. Link to the owner instead of repeating it.
 |---|---|
 | Read or write JSON, hash files or bytes, current time, deadlines, result directories | `runtime_io.py` **(conventions)** |
 | Schedule limits, cutoffs, caps, rates, paths | `schedules.scope(config)` / `schedules.json` **(conventions)** |
-| Training order, update/skip decision | `progress.py` |
+| Training order, update/skip decision, group size | `progress.py` |
+| A checkpoint's file names (resumable, resume-only) | `checkpoint_files.py` |
 | Final-evaluation configs, merge identity | `panels.py` |
 | Prompt rendering, policy rows, judge contract | `grpo/policy_prompt.py` |
 | Request validation, sampled-batch capture | `inference/generation.py` |

@@ -1,7 +1,7 @@
 # Training design: free-text GRPO proof of concept
 
 The design of the next training run: reward, prompt, reasoning effort and length, learning rate,
-schedule, acceptance and budget rules. Current version 2026-10-23. Numbers measured on the
+schedule, acceptance and budget rules. Current version 2026-11-12. Numbers measured on the
 benchmark draws and the training corpus are experiment records and stay in `private/`; this
 document states what they showed. Hardware limits are in [compute-planning.md](compute-planning.md).
 
@@ -17,13 +17,15 @@ document states what they showed. Hardware limits are in [compute-planning.md](c
 | Judge spend under a ledger cap with headroom | 2026-10-22 |
 | Update memory: all layers streamed (`offload_layers` 64) + `tiled_mlp` on the 2-GPU split | 2026-10-22 |
 | First campaign ends at step 100: segments 0 → 25 → 50 → 100, evaluation pauses at 25, 50 and 100 | 2026-10-23 |
+| Truncated draw scores 0 and is recorded `truncated` (O2) | 2026-11-12 |
+| Judge vote ties go to the higher category, as in the frozen base runs | 2026-11-12 |
+| Kept after review: the correction health gate pools the group's tokens; training labels use the evaluation's truth shape; the published F1 is unchanged | 2026-11-12 |
 
 ## Open decisions (recommendation first)
 
 | # | Decision | Recommendation |
 |---|---|---|
 | O1 | Volume allowance N0 | The report length at which the base's per-draw F1 peaks, measured on the medium base run |
-| O2 | Truncated draw | Reward 0, recorded `truncated` (an explicit exception to "truncated stays unknown") |
 | O3 | Partial matches | Exact matches only |
 | O4 | Continue rule at pauses | Continue while a pause improves by ≥ 0.03 or the reward trend still rises |
 | O5 | Judge ledger cap | $150 for the campaign |
@@ -97,6 +99,9 @@ Measured from the October adapters (one step at 5e-6 between two checkpoints; Lo
 
 - **One group per update** (no code change). Several groups per update is the main lever at
   larger scale (compute-planning.md §2); revisit after the proof of concept.
+- **No PPO clipping in effect.** One optimizer step per group means the policy ratio is exactly 1,
+  so `epsilon` never clips; only the detached vLLM/native correction, capped at `correction_max`,
+  weights tokens. `epsilon` acts only if a group ever takes more than one step.
 - **Unknown grades:** re-grade the group once from saved responses; still unknown → withhold the
   group (no update); stop after 2 consecutive withheld groups. Never score unknown as 0; never
   update on three of four draws.
@@ -251,3 +256,5 @@ and what a continuation needs:
 - 2026-10-27: segment 1 stopped before its step cap: two consecutive visits failed to start vLLM
   because another process held GPU memory. Continuation procedure in §8; the research summary is in
   [research.md](research.md).
+- 2026-11-12: a code review closed O2 and kept the vote tie rule, the correction health gate,
+  the training truth shape and the published F1 as they are (Decided, above).

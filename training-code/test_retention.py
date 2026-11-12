@@ -87,20 +87,6 @@ def test_prune_keeps_resume_state_at_pinned_steps(run):
     assert sorted(p.name for p in unpinned.iterdir()) == sorted(KEPT_FILES)
 
 
-@pytest.mark.parametrize("pinned", [[0], [-1], [True], [1.5], "25"])
-def test_prune_rejects_pinned_steps_that_are_not_positive_integers(run, pinned):
-    _results, state = run
-    with pytest.raises(ValueError, match="resume_steps_pinned"):
-        retention.prune_visits(state, resume_states_kept=2, pinned_steps=pinned)
-
-
-@pytest.mark.parametrize("kept", [0, -1, True, 1.5])
-def test_prune_rejects_a_policy_that_could_drop_the_current_resume_state(run, kept):
-    _results, state = run
-    with pytest.raises(ValueError, match="resume_states_kept"):
-        retention.prune_visits(state, resume_states_kept=kept, pinned_steps=[])
-
-
 def test_release_merge_keeps_its_manifest_as_the_receipt_and_deletes_the_weights(tmp_path):
     merged = tmp_path / "cache/merges/run-step-5-abc"
     merged.mkdir(parents=True)
