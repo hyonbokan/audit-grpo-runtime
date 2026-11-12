@@ -29,7 +29,7 @@ judge grades them against private ground truth. When the rewards differ, the upd
 uses each answer's reward minus the group mean as its advantage, applies the clipped
 policy objective with a correction for generation/training probability differences,
 and takes one optimizer step. Only the LoRA adapter is trained; the BF16 base weights
-stay frozen. Groups with equal rewards are skipped when the schedule enables that rule.
+stay frozen. Groups with equal rewards carry no advantage and are always skipped.
 
 ```mermaid
 flowchart TD
@@ -42,14 +42,14 @@ flowchart TD
     L["Unsloth + PEFT: model, LoRA and memory optimizations"] --> U
     U --> A["Cycle acceptance checks"]
     A -->|"Pass"| K["Record accepted checkpoint"]
-    D -->|"Skip when enabled"| S["Record visit; keep current checkpoint"]
+    D -->|"No contrast: skip"| S["Record visit; keep current checkpoint"]
     K --> B["Periodic visit backup and disk retention"]
     S --> B
     B --> C
     K --> V["Final evaluation against the frozen base"]
 ```
 
-The diagram shows the successful update and configured skip paths. Failed phases follow
+The diagram shows the update and skip paths. Failed phases follow
 the bounded retry/skip policy described in the [training guide](training-code/README.md#resume-and-failures).
 Private ground truth goes to grading only; policy inputs never contain it. Cycle
 acceptance establishes update correctness; the next visit's rollout verifies vLLM's copy of

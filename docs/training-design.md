@@ -1,7 +1,7 @@
 # Training design: free-text GRPO proof of concept
 
 The design of the next training run: reward, prompt, reasoning effort and length, learning rate,
-schedule, acceptance and budget rules. Current version 2026-10-23. Numbers measured on the
+schedule, acceptance and budget rules. Current version 2026-11-12. Numbers measured on the
 benchmark draws and the training corpus are experiment records and stay in `private/`; this
 document states what they showed. Hardware limits are in [compute-planning.md](compute-planning.md).
 
@@ -240,3 +240,5 @@ and what a continuation needs:
 - 2026-10-27: segment 1 stopped before its step cap: two consecutive visits failed to start vLLM
   because another process held GPU memory. Continuation procedure in §8; the research summary is in
   [research.md](research.md).
+- 2026-11-12: a code review closed O2 and kept the vote tie rule, the correction health gate,
+  the training truth shape and the published F1 as they are (Decided, above).
