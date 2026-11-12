@@ -67,7 +67,7 @@ def apply_update(
     decoder = model.get_decoder()
     head = model.get_output_embeddings()
     total_tokens = sum(len(sample["completion_ids"]) for sample in group)
-    mean_reward = sum(rewards) / 4
+    mean_reward = sum(rewards) / GROUP_SIZE
     optimizer.zero_grad(set_to_none=True)
     loss_sum, ratios, old_logprobs, transfers = 0.0, [], [], set()
     for sample in group:
