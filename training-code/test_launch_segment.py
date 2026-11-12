@@ -30,6 +30,7 @@ def test_a_started_run_records_the_commit_and_uncommitted_changes_it_froze(tmp_p
         [*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True
     ).stdout.strip()
     (code / "schedules.json").write_text('{"registered": "since the commit"}\n')
+    (code / "new_module.py").write_text("VALUE = 1\n")  # hashed and run, never committed
     executables = tmp_path / "bin"
     executables.mkdir()
     docker = executables / "docker"
@@ -47,4 +48,5 @@ def test_a_started_run_records_the_commit_and_uncommitted_changes_it_froze(tmp_p
     assert (run / "source-commit.txt").read_text() == f"{head}\n"
     diff = (run / "source-uncommitted.diff").read_text()
     assert '+{"registered": "since the commit"}' in diff
+    assert "+VALUE = 1" in diff
     assert "SOURCE_SHA256SUMS" in diff

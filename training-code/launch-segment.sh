@@ -32,7 +32,12 @@ cp SOURCE_SHA256SUMS "$run_root/"
 if commit=$(git -C "$runtime_root" rev-parse HEAD 2>/dev/null); then
   printf '%s\n' "$commit" > "$run_root/source-commit.txt"
   { git -C "$runtime_root" status --porcelain=v1 -- training-code
-    git -C "$runtime_root" diff HEAD -- training-code; } > "$run_root/source-uncommitted.diff"
+    git -C "$runtime_root" diff HEAD -- training-code
+    # A hashed file git does not track runs too: record its whole content.
+    while read -r _ name; do
+      git ls-files --error-unmatch -- "$name" > /dev/null 2>&1 ||
+        git diff --no-index -- /dev/null "$name" || true
+    done < SOURCE_SHA256SUMS; } > "$run_root/source-uncommitted.diff"
 else
   echo "not a git checkout" > "$run_root/source-commit.txt"
 fi
